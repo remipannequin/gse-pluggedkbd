@@ -159,7 +159,6 @@ class Keyboards {
         this._defaultSource = null;
     }
 
-
     /**
      * Decide which input source to activate when a keyboard is plugged in or out.
      * 
@@ -212,7 +211,7 @@ class Keyboards {
     }
 
     /**
-     * 
+     * Add a new device
      * @param {str} path the input file name
      */
     add(path) {
@@ -244,6 +243,11 @@ class Keyboards {
        
     }
 
+    /**
+     * Remove a device.
+     *
+     * @param {str} path the file that was deleted
+     */
     remove(path) {
         // If dev already exists, and has no association, remove it
         
@@ -272,12 +276,23 @@ class Keyboards {
         return this._current;
     }
 
+    /**
+     * Associate an input source with a device.
+     *
+     * @param {InputDevice} dev 
+     * @param {InputSource} source 
+     */
     associate(dev, source) {
         dev.associate(source);
         this._current = dev;
         this._emitChanged();
     }
 
+    /**
+     * Remove association for this device.
+     *
+     * @param {InputDevice} dev 
+     */
     deassociate(dev) {
         dev.deassociate();
         this._current = null;
@@ -358,6 +373,7 @@ class Keyboards {
     }
 }
 Signals.addSignalMethods(Keyboards.prototype);
+
 
 /**
  * Display an inputDevice as a MenuItem
@@ -487,7 +503,10 @@ class Extension {
         this._settings = null;
     }
 
-
+    /**
+     * set the directory where by-id links are.
+     * Starts monitoring this directory for new files.
+     */
     _setDevDir () {
         this._cancelMonitors();
         this.devDir = Gio.File.new_for_path(this._settings.devDir);
@@ -499,6 +518,9 @@ class Extension {
         this._timeout = Mainloop.timeout_add_seconds(5, this._inspectDir.bind(this, false));
     }
 
+    /**
+     * Cancel monitoring of the device directory.
+     */
     _cancelMonitors() {
         if (this._timeout) {
             Mainloop.source_remove(this._timeout);
@@ -511,6 +533,12 @@ class Extension {
         }
     }
 
+    /**
+     * Explore the content of the device directory.
+     * 
+     * @param {boolean } repeat if true, repeat inspection
+     * @returns repeat
+     */
     _inspectDir(repeat = false) {
         let iter = this.devDir.enumerate_children("standard::name", Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
         let f;
@@ -525,7 +553,8 @@ class Extension {
     }
 
     /**
-     * 
+     * Callback called when device directory change.
+     *
      * @param {Gio.File} file 
      * @param {Gio.File} other_file 
      * @param {Gio.FileMonitorEvent} event_type 
@@ -543,7 +572,9 @@ class Extension {
         }
     }
 
-    // Update menu item according to the keyboars register
+    /**
+     * Update menu item according to the model.
+     */ 
     _updateSubmenu() {
         // Display connected and associated keyboard (even if not plugged)
         if (this._devices.size()) {
@@ -587,6 +618,11 @@ class Extension {
 
     }
 
+    /**
+     * Callback called when the submenu item is clicked.
+     *
+     * @param {InputDevice} dev the device that was clicked 
+     */
     _toggle(dev) {
         if (dev.associated) {
             //deassociate
