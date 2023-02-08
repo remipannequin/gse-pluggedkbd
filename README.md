@@ -4,7 +4,7 @@ Gnome-shell extension that change automatically input method when a keyboard is 
 
 # Why using this extension ?
 
-Some peoples love keyboards (I do!). But those keyboards can have various layouts. For instance, in the
+Some peoples love keyboards (I do!). But those keyboards can have various layouts. For instance, the
 "Azerty" layout is very popular in France. There is also alternative physical layouts such as "dvorak", "colemak", "bépo"...
 
 So, you end up having to change the input source in gnome each time you plug in a keyboard with an alternative layout... or
