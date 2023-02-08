@@ -1,6 +1,6 @@
 {
-  "name": "Pluged Keyboard",
-  "description": "Detect if a specific input device is connected/disconnected, and change keyboard layout accordingly.",
+  "name": "Plugged Keyboard",
+  "description": "Detect if a specific input device is connected/disconnected, and change input source automaticaly.",
   "uuid": "plugged-kbd@remipannequin.github.com",
   "shell-version": [
     "42"
