@@ -5,6 +5,7 @@
   "shell-version": [
     "42"
   ],
+  "url": "https://github.com/remipannequin/gse-pluggedkbd",
   "settings-schema": "org.gnome.shell.extensions.plugged-kbd",
   "version": 1,
   "session-modes": ["user", "unlock-dialog"]
