@@ -18,7 +18,7 @@
 
 /* exported init */
 const {Clutter, Gio, GObject, GLib, St} = imports.gi;
-
+const Gettext = imports.gettext;
 const ByteArray = imports.byteArray;
 const Main = imports.ui.main;
 const Mainloop = imports.mainloop;
@@ -30,6 +30,9 @@ const ExtensionUtils = imports.misc.extensionUtils;
 
 const Me = ExtensionUtils.getCurrentExtension();
 const ism = Status.keyboard.getInputSourceManager();
+const Domain = Gettext.domain(Me.metadata.uuid);
+const _ = Domain.gettext;
+
 
 /**
  * A very simple representation of an input device, based on its name in /dev/input/by-id 
@@ -73,6 +76,9 @@ class InputDevice {
         let displayName = this._name.replaceAll('_', ' ');
         // capitalize first letter of each word
         displayName = displayName.replace(/(^|\s)\S/g, function(t) { return t.toUpperCase() });
+        displayName = displayName.replace(/\\x([0-f][0-f])/g, function (t, g) {
+            const c = Number.parseInt(g, 16); 
+            return String.fromCharCode(c) });
         return displayName;
     }
 
@@ -105,7 +111,7 @@ class InputDevice {
         let found;
         for (const line of stdout.split('\n')) {
             //log(line);
-            if (found = line.match(/E: ID_MODEL=(.*)/)) {
+            if (found = line.match(/E: ID_MODEL_ENC=(.*)/)) {
                 this._name = found[1];
                 this._isDefaultName = false;
                 return;
@@ -578,8 +584,13 @@ class Extension {
     _updateSubmenu() {
         // Display connected and associated keyboard (even if not plugged)
         if (this._devices.size()) {
-            
-            this.menuItem.label.text = 'Keyboards';
+            if (this._devices.current) {
+                // a device is currently controlling input source
+                this.menuItem.label.text = this._devices.current.name();
+            } else {
+                // some devices are connected, but no one control the input source
+                this.menuItem.label.text = _('Keyboards');
+            }
             this.menuItem.sensitive = true;
             // Remove all subs that are not in device
             for (const [kbdId, sub] of this.subs.entries()) {
@@ -612,8 +623,10 @@ class Extension {
         } else {
             this.menuItem.menu.removeAll();
             this.subs.clear();
-            this.menuItem.label.text = 'No external keyboards';
+            // Maybe just hide menu item
+            this.menuItem.label.text = _('No external keyboards');
             this.menuItem.sensitive = false;
+            this.menuItem.hide();
         }
 
     }
@@ -683,5 +696,6 @@ class Extension {
 }
 
 function init() {
+    ExtensionUtils.initTranslations(Me.metadata.uuid);
     return new Extension();
 }
