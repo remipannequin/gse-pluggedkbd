@@ -1,0 +1,11 @@
+{
+  "name": "Pluged Keyboard",
+  "description": "Detect if a specific input device is connected/disconnected, and change keyboard layout accordingly.",
+  "uuid": "plugged-kbd@remipannequin.github.com",
+  "shell-version": [
+    "42"
+  ],
+  "settings-schema": "org.gnome.shell.extensions.plugged-kbd",
+  "version": 1,
+  "session-modes": ["user", "unlock-dialog"]
+}
