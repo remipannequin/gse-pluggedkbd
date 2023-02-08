@@ -8,7 +8,7 @@ Some peoples love keyboards (I do!). But those keyboards can have various layout
 "Azerty" layout is very popular in France. There is also alternative physical layouts such as "dvorak", "colemak", "bépo"...
 
 So, you end up having to change the input source in gnome each time you plug in a keyboard with an alternative layout... or
-each time to plug in a docking station with your alternative keyboard.
+each time you dock or undock your laptop (if your alternative keyboard is connected to the docking station).
 
 Of course, it is _possible_ to setup an udev rule that call a script when you plug a device in, that change the xkbd layout
 for this device only. But I find that method impractical and hard to maintain.
