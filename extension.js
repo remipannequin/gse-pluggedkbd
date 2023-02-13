@@ -73,6 +73,10 @@ class InputDevice {
         return `${this._name}: [${showList(this._devices.entries())}] `;
     }
 
+    get name() {
+        return this._name;
+    }
+
     get displayName() {
         // replace _ with spaces
         let dn = this._displayName.replaceAll('_', ' ');
@@ -85,10 +89,6 @@ class InputDevice {
             return String.fromCharCode(c);
         });
         return dn;
-    }
-
-    set displayName(name) {
-        this._displayName = name;
     }
 
     /**
@@ -265,7 +265,9 @@ class Keyboard {
         this.connected = connected;
         this.associated = null;
         if (name)
-            this._displayName = name;
+            this.displayName = name;
+        else
+            this.displayName = id;
     }
 
     /**
@@ -279,6 +281,19 @@ class Keyboard {
 
     deassociate() {
         this.associated = null;
+    }
+
+    toString() {
+        let s = `Kbd ${this.id} (${this.displayName}) `;
+        if (this.connected)
+            s += 'connected, ';
+        else
+            s += 'not connected, ';
+        if (this.associated)
+            s += `associated to: ${this.associated.shortName}`;
+        else
+            s += 'not associsated';
+        return s;
     }
 }
 
@@ -362,16 +377,18 @@ class Keyboards {
      * Add a new device
      *
      * @param {ProcInputDevicesPoller} detector objects that emitted the signal
-     * @param {str} id the input file name
+     * @param {str} inputDevId the input file name
      */
-    add(detector, id) {
+    add(detector, inputDevId) {
         let dev;
+        let inputDev = detector.getDevice(inputDevId);
         // If device already exists, only update its connected status
-        if (this._map.has(id)) {
-            dev = this._map.get(id);
+        if (this._map.has(inputDev.name)) {
+            dev = this._map.get(inputDev.name);
             dev.connected = true;
         } else {
-            dev = new Keyboard(id);
+            dev = new Keyboard(inputDev.name, true, inputDev.displayName);
+            log(dev);
             this._map.set(dev.id, dev);
         }
         // trigger plugged_in rules
@@ -383,12 +400,13 @@ class Keyboards {
      * Remove a device.
      *
      * @param {ProcInputDevicesPoller} detector objects that emitted the signal
-     * @param {str} id the file that was deleted
+     * @param {str} inputDevId the file that was deleted
      */
-    remove(detector, id) {
+    remove(detector, inputDevId) {
+        let inputDev = detector.getDevice(inputDevId);
         // If dev already exists, and has no association, remove it
-        if (this._map.has(id)) {
-            let dev = this._map.get(id);
+        if (this._map.has(inputDev.id)) {
+            let dev = this._map.get(inputDev.id);
             dev.connected = false;
             // trigger plugged_in rules
             this._execRules(RuleTrigger.PLUGGED_OUT, dev);
@@ -437,7 +455,7 @@ class Keyboards {
         let result =  [];
         for (let dev of this._map.values()) {
             if (dev.associated)
-                result.push({kbdId: dev.id, kbdName: dev.name(), srcId: dev.associated.id});
+                result.push({kbdId: dev.id, kbdName: dev.displayName, srcId: dev.associated.id});
         }
         return result;
     }
@@ -491,7 +509,7 @@ class Keyboards {
         // Go through the list of connected and associated devices
         // If the new source match, this is the new current
         for (const dev of this._map.values()) {
-            if (dev.connected && dev.associated.id === src.id) {
+            if (dev.connected && dev.associated && dev.associated.id === src.id) {
                 this._current = dev;
                 this._emitChanged();
                 return;
@@ -521,7 +539,7 @@ var LayoutMenuItem = GObject.registerClass(
             // Name in italics if  not connected
             this.dev = dev;
             this.label = new St.Label({
-                text: dev.name(),
+                text: dev.displayName,
                 x_expand: true,
             });
             this.label.clutter_text.set_markup(this._devName());
@@ -541,7 +559,7 @@ var LayoutMenuItem = GObject.registerClass(
          */
         _devName() {
             if (this.dev.connected)
-                return this.dev.name();
+                return this.dev.displayName;
             else
                 return `<i>${this.dev.name()}</i>`;
         }
@@ -643,9 +661,10 @@ class Extension {
 
         // Display connected and associated keyboard (even if not plugged)
         if (this._devices.size()) {
+            this.menuItem.show();
             if (this._devices.current) {
                 // a device is currently controlling input source
-                this.menuItem.label.text = this._devices.current.name();
+                this.menuItem.label.text = this._devices.current.displayName;
             } else {
                 // some devices are connected, but no one control the input source
                 this.menuItem.label.text = _('Keyboards');
@@ -720,7 +739,6 @@ class Extension {
         this._settings.connect('show-indicator-changed', () => {
             this.menuItem.visible = this._settings.showIndicator;
         });
-        this._settings.connect('dev-dir-changed', this._setDevDir.bind(this));
 
         // Connect signals
         this._devices.connect('changed', this._updateSubmenu.bind(this));
@@ -737,8 +755,8 @@ class Extension {
         this._devices.ruleList = this._settings.rules;
 
         // Set input device and start monitoring it (and do initial exploration)
-        this.detector.connect('keyboard-added', this._devices.add.bind(this));
-        this.detector.connect('keyboard-removed', this._devices.remove.bind(this));
+        this.detector.connect('keyboard-added', this._devices.add.bind(this._devices));
+        this.detector.connect('keyboard-removed', this._devices.remove.bind(this._devices));
         this.detector.mainLoopAdd();
     }
 
