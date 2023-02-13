@@ -1,2 +1,6 @@
 schemas/gschemas.compiled
 plugged-kbd@remipannequin.github.com.shell-extension.zip
+packninstall
+/package-lock.json
+/package.json
+/node_modules
