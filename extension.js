@@ -22,7 +22,6 @@ const Gettext = imports.gettext;
 const ByteArray = imports.byteArray;
 const Main = imports.ui.main;
 const Mainloop = imports.mainloop;
-const KeyboardManager = imports.misc.keyboardManager;
 const PopupMenu = imports.ui.popupMenu;
 const Status  = imports.ui.status;
 const Signals = imports.signals;
@@ -33,129 +32,279 @@ const ism = Status.keyboard.getInputSourceManager();
 const Domain = Gettext.domain(Me.metadata.uuid);
 const _ = Domain.gettext;
 
-
 /**
- * A very simple representation of an input device, based on its name in /dev/input/by-id 
+ * An input device as described in /proc/bus/input/device (partially).
  */
 class InputDevice {
-    constructor(path, connected = true, name) {
-        this.id = path;
-        this.connected = connected;
-        this.associated = null;
-        // Parse id to get name and other details
-        let tmp;
-        let str = path;
-        this.isTmp = path.match(/.*.tmp-.*/);
-        if (this.isTmp) {
-            [str, tmp] = path.split('.');
-        }
-        //this.isIf1 = path.match(/.*-if01.*/);
-        let elt = str.split('-');
-        this._if = elt[0];
-        this.isKbd = path.match(/.*-event-kbd.*/);
-        this.prefix = `${elt[0]}-${elt[1]}`;
-        // Set display name
-        if (typeof(name) === 'undefined' || name === null) {
-            this._name = elt[1]
-            this._isDefaultName = true;
-        } else {
-            this._name = name;
-            this._isDefaultName = false;
-        }
-        
-        
-        //log(this._if, this._name, this._kbd, this.isTmp, this.isKbd);
+    constructor(name) {
+        this._name = name;
+        this._displayName = name;
+        this._devices = new Map();
+        this._isDefaultName = true;
     }
 
-    name() {
-        // If connected and using default name, try to get model name from udevadm
-        if (this.connected && this._isDefaultName) {
-            this._queryName();
+    addPhys(dev, phys) {
+        if (!this._devices.has(dev)) {
+            this._devices.set(dev, phys);
+            if (this._isDefaultName)
+                this._queryName(dev);
         }
-        // replace underscore with spaces
-        let displayName = this._name.replaceAll('_', ' ');
+    }
+
+    toString() {
+        /**
+         * Transform a (event, phys) tuple to string.
+         *
+         * @param {Array} ev the phys tupple
+         */
+        function showEv(ev) {
+            return `${ev[0]} (${ev[1]})`;
+        }
+
+        /**
+         * Get the list of physical devices of this keyboard.
+         *
+         * @param {Iterable} listPhys list of physical devices (tuple (event, phys))
+         */
+        function showList(listPhys) {
+            return listPhys.map(showEv).join(', ');
+        }
+
+        return `${this._name}: [${showList(this._devices.entries())}] `;
+    }
+
+    get displayName() {
+        // replace _ with spaces
+        let dn = this._displayName.replaceAll('_', ' ');
         // capitalize first letter of each word
-        displayName = displayName.replace(/(^|\s)\S/g, function(t) { return t.toUpperCase() });
-        displayName = displayName.replace(/\\x([0-f][0-f])/g, function (t, g) {
-            const c = Number.parseInt(g, 16); 
-            return String.fromCharCode(c) });
-        return displayName;
+        dn = dn.replace(/(^|\s)\S/g, t => {
+            return t.toUpperCase();
+        });
+        dn = dn.replace(/\\x([0-f][0-f])/g, (t, g) => {
+            const c = Number.parseInt(g, 16);
+            return String.fromCharCode(c);
+        });
+        return dn;
     }
 
-    /**
-     * Check whether this dev is similar to another 
-     * 
-     * @param {InputDevice} asOther 
-     * @returns 
-     */
-    same(asOther) {
-        return this.prefix === asOther.prefix;
+    set displayName(name) {
+        this._displayName = name;
     }
 
     /**
      * Call udevadm info on this path to get more info
-     * 
-     * @return {str} the device model
+     *
+     * @param {str} eventId the path of the device to query (e.g. /dev/input/event12)
      */
-    _queryName() {
-        let [, stdout, stderr, status] = GLib.spawn_command_line_sync(`udevadm info /dev/input/by-id/${this.id}`);
-        
+    _queryName(eventId) {
+        // log(`udevadm info /dev/input/${eventId}`);
+        let [, stdout, , status] = GLib.spawn_command_line_sync(`udevadm info /dev/input/${eventId}`);
+
         if (status !== 0) {
-            //default value
+            // default value
             return;
         }
-        //log(stdout);
         if (stdout instanceof Uint8Array)
             stdout = ByteArray.toString(stdout);
-        //log(stdout);
-        let found;
         for (const line of stdout.split('\n')) {
-            //log(line);
-            if (found = line.match(/E: ID_MODEL_ENC=(.*)/)) {
-                this._name = found[1];
+            const found = line.match(/E: ID_MODEL_ENC=(.*)/);
+            if (found) {
+                this._displayName = found[1];
                 this._isDefaultName = false;
                 return;
             }
         }
     }
+}
+
+
+/**
+ * Module that periodically reads /proc/bus/inpu/devices. Emit 'keyboard-added' or
+ * 'keyboard-removed' events when a new keyboard is detected or found absent.
+ *
+ */
+class ProcInputDevicesPoller  {
+    constructor() {
+        this._FILE = '/proc/bus/input/devices';
+        this._PARSING = {
+            key: /B: KEY=(.*)/,
+            name: /N: Name="(.*)"/,
+            ev: /B: EV=(\d+)/,
+            phys: /P: Phys=(.*)/,
+            dev: /H: Handlers=.*(event\d+).*/,
+        };
+        this._PERIOD = 250;
+        this._removed = [];
+        this._added = [];
+        this._register = new Map();
+    }
+
+    _poll() {
+        /**
+         * Get the number of keys on a keyboard.
+         *
+         * @param {str} str the hex string with the key declaration
+         */
+        function numKeys(str) {
+            let n = 0;
+            for (const c of str) {
+                switch (c) {
+                case '1':
+                case '2':
+                case '4':
+                case '8':
+                    n += 1;
+                    break;
+                case '3':
+                case '5':
+                case '6':
+                case '9':
+                case 'a':
+                case 'c':
+                    n += 2;
+                    break;
+                case '7':
+                case 'b':
+                case 'd':
+                case 'e':
+                    n += 3;
+                    break;
+                case 'f':
+                    n += 4;
+                }
+            }
+            return n;
+        }
+
+        /**
+         * Check whether the EV looks the one of a keyboard.
+         *
+         * @param {str} ev the EV string
+         */
+        function validEV(ev) {
+            const mask = 0x100003; // EV_SYN & EV_KEY & EV_REP
+            // a more strit mask would be 0x120013 (EV_MSC and EV_LED added)
+            const evInt = parseInt(ev, 16);
+            return (evInt & mask) === mask;
+        }
+
+        const f = Gio.File.new_for_path(this._FILE);
+
+        let contents = ByteArray.toString(f.load_contents(null)[1]);
+
+        this._markAllRemoved();
+        for (const block of contents.split('\n\n')) {
+            const elt = {};
+            for (const line of block.split('\n')) {
+                // If line is empty, start a new entity
+                let found = false;
+                for (const r in this._PARSING) {
+                    found = line.match(this._PARSING[r]);
+                    if (found)
+                        elt[r] = found[1];
+                }
+            }
+            if (elt.ev && validEV(elt.ev) && elt.key && numKeys(elt.key) > 100) {
+                const baseName = elt.name.replace(/\Wkeyboard/i, '');
+                this._add(baseName, elt.dev, elt.phys);
+            }
+        }
+        for (const k of this._added)
+            this.emit('keyboard-added', k);
+        for (const k of this._removed) {
+            this.emit('keyboard-removed', k);
+            this._register.delete(k);
+        }
+        return true;
+    }
+
+    _markAllRemoved() {
+        this._removed = Array.from(this._register.keys());
+        this._added = [];
+    }
+
+    _add(name, dev, phys) {
+        this._removed = this._removed.filter(elt => name !== elt);
+        if (!this._register.has(name)) {
+            const kb = new InputDevice(name);
+            this._register.set(name, kb);
+            this._added.push(name);
+        }
+        this._register.get(name).addPhys(dev, phys);
+    }
+
+    toString() {
+        const values = new Array(this._register.values());
+        return `[ ${values.map(toString).join('; ')}]`;
+    }
+
+    mainLoopAdd() {
+        this._timeout = Mainloop.timeout_add(this._PERIOD, this._poll.bind(this));
+    }
+
+    mainLoopRemove() {
+        if (this._timeout) {
+            Mainloop.source_remove(this._timeout);
+            this._timeout = null;
+        }
+    }
+
+    getDevice(id) {
+        return this._register.get(id);
+    }
+}
+Signals.addSignalMethods(ProcInputDevicesPoller.prototype);
+
+
+/**
+ * A very simple representation of an input device, based on its name in /dev/input/by-id
+ */
+class Keyboard {
+    constructor(id, connected = true, name) {
+        this.id = id;
+        this.connected = connected;
+        this.associated = null;
+        if (name)
+            this._displayName = name;
+    }
 
     /**
      * Associate this device with an input source
-     * 
-     * @param {InputSource} is 
+     *
+     * @param {InputSource} is input source to associate to tis keyboard
      */
     associate(is) {
-        //log(`associating ${this.name()} with source ${is.shortName}`);
         this.associated = is;
     }
 
     deassociate() {
-        //log(`de-associating ${this.name()}`);
         this.associated = null;
     }
 }
 
 
+
 /**
  * Enum for the various type of rule
+ *
  * @readonly
  * @enum {{name: string}}
  */
 const RuleTrigger = Object.freeze({
-    PLUGGED_IN:   { name: "plugged_in" },
-    PLUGGED_OUT:  { name: "plugged_out" },
-    PRESENT:      { name: "present" },
-    ABSENT:       { name: "absent"}
+    PLUGGED_IN: {name: 'plugged_in'},
+    PLUGGED_OUT: {name: 'plugged_out'},
+    PRESENT: {name: 'present'},
+    ABSENT: {name: 'absent'},
 });
 
 
 
 /**
  * List of keybords and association rules.
- * 
+ *
  * When a device is plugged in, the associations are looked up, and
- * if triggered, the corresponding input source is activated. When 
- * the device is plugged out, the default (first) input source is 
+ * if triggered, the corresponding input source is activated. When
+ * the device is plugged out, the default (first) input source is
  * activated.
  */
 class Keyboards {
@@ -167,26 +316,22 @@ class Keyboards {
 
     /**
      * Decide which input source to activate when a keyboard is plugged in or out.
-     * 
+     *
      * Last plugged-in keyboard has priority.
      * When plugging-out, currently connected keyboard are searched, and if none are
      * found, default input source is activated.
-     * 
-     * @param {RuleTrigger} eventType 
-     * @param {InputDevice} dev 
+     *
+     * @param {RuleTrigger} eventType type of event
+     * @param {InputDevice} dev the device that was added or removed
      */
     _execRules(eventType, dev) {
-       
         switch (eventType) {
-            case RuleTrigger.PLUGGED_IN:
-            
-                if (dev.associated) {
-                    //log(`detecting ${dev.id}, activating ${dev.associated.displayName}`);
-                    dev.associated.activate();
-                    this._current = dev;
-                    this._emitChanged();
-                }
-          
+        case RuleTrigger.PLUGGED_IN:
+            if (dev.associated) {
+                dev.associated.activate();
+                this._current = dev;
+                this._emitChanged();
+            }
             break;
         case RuleTrigger.PLUGGED_OUT:
             // Only the current dev trigger a change of input source (i.e. if the user selected manually another source, nothing is changed)
@@ -200,16 +345,13 @@ class Keyboards {
                         return;
                     }
                 }
-                
                 if (this._defaultSource) {
-                    //log(`activating default source (${this._defaultSource.displayName})`);
                     this._defaultSource.activate();
                     this._current = null;
                     this._emitChanged();
                 }
             }
         }
-
     }
 
     _emitChanged() {
@@ -218,54 +360,40 @@ class Keyboards {
 
     /**
      * Add a new device
-     * @param {str} path the input file name
+     *
+     * @param {ProcInputDevicesPoller} detector objects that emitted the signal
+     * @param {str} id the input file name
      */
-    add(path) {
+    add(detector, id) {
         let dev;
         // If device already exists, only update its connected status
-        if (this._map.has(path)) {
-            dev = this._map.get(path);
+        if (this._map.has(id)) {
+            dev = this._map.get(id);
             dev.connected = true;
         } else {
-            dev = new InputDevice(path);
-            // Check if Tmp or not keyboard
-            if (dev.isTmp || !dev.isKbd) {
-                return;
-            }
-            // Check if duplicate
-            for (const otherDev of this._map.values()) {
-                if (dev.same(otherDev)) {
-                    return;
-                }
-            }
-
-            //log(`adding ${dev.name()} (${dev.id})`);
+            dev = new Keyboard(id);
             this._map.set(dev.id, dev);
         }
-        
         // trigger plugged_in rules
         this._execRules(RuleTrigger.PLUGGED_IN, dev);
         this._emitChanged();
-       
     }
 
     /**
      * Remove a device.
      *
-     * @param {str} path the file that was deleted
+     * @param {ProcInputDevicesPoller} detector objects that emitted the signal
+     * @param {str} id the file that was deleted
      */
-    remove(path) {
+    remove(detector, id) {
         // If dev already exists, and has no association, remove it
-        
-        if (this._map.has(path)) {
-            let dev = this._map.get(path);
+        if (this._map.has(id)) {
+            let dev = this._map.get(id);
             dev.connected = false;
-            //log(`removing ${dev.name()} (${dev.id})`);
             // trigger plugged_in rules
             this._execRules(RuleTrigger.PLUGGED_OUT, dev);
-            if (!dev.associated) {
+            if (!dev.associated)
                 this._map.delete(dev.id);
-            }
             this._emitChanged();
         }
     }
@@ -285,8 +413,8 @@ class Keyboards {
     /**
      * Associate an input source with a device.
      *
-     * @param {InputDevice} dev 
-     * @param {InputSource} source 
+     * @param {InputDevice} dev the keyboard to associate
+     * @param {InputSource} source the input source to associate
      */
     associate(dev, source) {
         dev.associate(source);
@@ -297,7 +425,7 @@ class Keyboards {
     /**
      * Remove association for this device.
      *
-     * @param {InputDevice} dev 
+     * @param {InputDevice} dev the keyboard to de-associate
      */
     deassociate(dev) {
         dev.deassociate();
@@ -308,14 +436,13 @@ class Keyboards {
     get ruleList() {
         let result =  [];
         for (let dev of this._map.values()) {
-            if (dev.associated) {
+            if (dev.associated)
                 result.push({kbdId: dev.id, kbdName: dev.name(), srcId: dev.associated.id});
-            }
         }
         return result;
     }
 
-    set ruleList (list) {
+    set ruleList(list) {
         const src = new Map();
         for (const i in ism.inputSources) {
             let is = ism.inputSources[i];
@@ -353,17 +480,14 @@ class Keyboards {
 
     /**
      * Update which keyboard is "current" if any.
-     * 
+     *
      * When a keyboard activated an input source (when it was plugged, or when anothor kb was unplugged), it
      * becomes current.
-     * 
-     * 
-     * @param {InputSource} is the current input source
      */
     updateCurrentSource() {
-        // The new source 
+        // The new source
         const src = ism.currentSource;
-        
+
         // Go through the list of connected and associated devices
         // If the new source match, this is the new current
         for (const dev of this._map.values()) {
@@ -386,10 +510,11 @@ Signals.addSignalMethods(Keyboards.prototype);
  */
 var LayoutMenuItem = GObject.registerClass(
     class LayoutMenuItem extends PopupMenu.PopupBaseMenuItem {
-        
         /**
-         * 
-         * @param {InputDevice} dev 
+         * Init this as gobject.
+         *
+         * @param {InputDevice} dev the keyboard to display
+         * @param {boolean} isCurrent is this keyboard current
          */
         _init(dev, isCurrent) {
             super._init();
@@ -400,54 +525,51 @@ var LayoutMenuItem = GObject.registerClass(
                 x_expand: true,
             });
             this.label.clutter_text.set_markup(this._devName());
-            
-            this.indicator = new St.Label({ text: this._isName() });
+
+            this.indicator = new St.Label({text: this._isName()});
             this.add_child(this.label);
             this.add(this.indicator);
             this.label_actor = this.label;
-            if (isCurrent) {
+            if (isCurrent)
                 this.setOrnament(PopupMenu.Ornament.DOT);
-            }
         }
 
         /**
-         * 
+         * Keyboard name.
+         *
          * @returns the name of the keyboard, in italic if not connected
          */
         _devName() {
-            if (this.dev.connected) {
+            if (this.dev.connected)
                 return this.dev.name();
-            } else {
+            else
                 return `<i>${this.dev.name()}</i>`;
-            }
         }
 
         /**
-         * 
+         * Input Source Name.
+         *
          * @returns the short name of the associated input source
          */
         _isName() {
-            if (this.dev.associated) {
+            if (this.dev.associated)
                 return this.dev.associated.shortName;
-            }
-            return "";
+            return '';
         }
 
         update(isCurrent) {
             this.label.clutter_text.set_markup(this._devName());
             this.indicator.text = this._isName();
-            if (isCurrent) {
+            if (isCurrent)
                 this.setOrnament(PopupMenu.Ornament.DOT);
-            } else {
+            else
                 this.setOrnament(PopupMenu.Ornament.NONE);
-            }
         }
     });
-    
-    
+
+
 class PluggedKbdSettings {
     constructor() {
-        
         this._SCHEMA = 'org.gnome.shell.extensions.plugged-kbd';
         this._KEY_RULES = 'rules';
         this._KEY_SHOW_INDICATOR = 'show-indicator';
@@ -470,35 +592,38 @@ class PluggedKbdSettings {
         this.emit('dev-dir-changed');
     }
 
-    set rules (ruleList) {
+    set rules(ruleList) {
         let result =  [];
-        
-        let  child_type = new GLib.VariantType('(sss)');
+
+        let  childType = new GLib.VariantType('(sss)');
         for (const elt of ruleList) {
             let assoc = new GLib.Variant('(sss)', [
                 elt.kbdId,
                 elt.kbdName,
-                elt.srcId]);
+                elt.srcId,
+            ]);
             result.push(assoc);
         }
-        let v = GLib.Variant.new_array(child_type, result);
+        let v = GLib.Variant.new_array(childType, result);
         this._settings.set_value('rules', v);
     }
 
-    get rules () {
+    get rules() {
         const v = this._settings.get_value('rules');
         return v.recursiveUnpack();
     }
 
-    get showIndicator () {
-        return this._settings.get_boolean(this._KEY_SHOW_INDICATOR)
+    get showIndicator() {
+        return this._settings.get_boolean(this._KEY_SHOW_INDICATOR);
     }
 
-    get devDir () {
+    get devDir() {
         return this._settings.get_string(this._KEY_DEV_INPUT_DIR);
     }
 }
 Signals.addSignalMethods(PluggedKbdSettings.prototype);
+
+
 
 
 class Extension {
@@ -510,78 +635,12 @@ class Extension {
     }
 
     /**
-     * set the directory where by-id links are.
-     * Starts monitoring this directory for new files.
-     */
-    _setDevDir () {
-        this._cancelMonitors();
-        this.devDir = Gio.File.new_for_path(this._settings.devDir);
-        // Monitor changes to devs
-        this._monitor = this.devDir.monitor_directory(null, null);
-        this.monitorHandlerId = this._monitor.connect('changed', this._devDirChanged.bind(this));
- 
-        // Populate the keyboard register, with a small delay
-        this._timeout = Mainloop.timeout_add_seconds(5, this._inspectDir.bind(this, false));
-    }
-
-    /**
-     * Cancel monitoring of the device directory.
-     */
-    _cancelMonitors() {
-        if (this._timeout) {
-            Mainloop.source_remove(this._timeout);
-            this._timeout = null;
-        }
-        if (this._monitor) {
-            this._monitor.disconnect(this.monitorHandlerId);
-            this._monitor.cancel();
-            this._monitor = null;
-        }
-    }
-
-    /**
-     * Explore the content of the device directory.
-     * 
-     * @param {boolean } repeat if true, repeat inspection
-     * @returns repeat
-     */
-    _inspectDir(repeat = false) {
-        let iter = this.devDir.enumerate_children("standard::name", Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
-        let f;
-        while (f = iter.next_file(null)) {
-            let path = f.get_name();
-            this._devices.add(path);
-        }
-        if (!repeat) {
-            this._timeout = null;
-        }
-        return repeat;
-    }
-
-    /**
-     * Callback called when device directory change.
-     *
-     * @param {Gio.File} file 
-     * @param {Gio.File} other_file 
-     * @param {Gio.FileMonitorEvent} event_type 
-     */
-    _devDirChanged(monitor, file, other_file, event_type) {
-        let path = this.devDir.get_relative_path(file);
-
-        switch (event_type) {
-            case Gio.FileMonitorEvent.CREATED:
-                this._devices.add(path);
-                break;
-            case Gio.FileMonitorEvent.DELETED:
-                this._devices.remove(path);
-                break;
-        }
-    }
-
-    /**
      * Update menu item according to the model.
-     */ 
+     */
     _updateSubmenu() {
+        if (!this.menuItem)
+            return;
+
         // Display connected and associated keyboard (even if not plugged)
         if (this._devices.size()) {
             if (this._devices.current) {
@@ -601,7 +660,7 @@ class Extension {
             }
             // Iterate over devices
             for (const dev of this._devices.values()) {
-                let cur = (this._devices.current === dev);
+                let cur = this._devices.current === dev;
                 let sub;
                 if (this.subs.has(dev.id)) {
                     // Menu item already there, update
@@ -615,7 +674,7 @@ class Extension {
                         if (event.type() === Clutter.EventType.BUTTON_RELEASE)
                             this._toggle(dev);
                         return Clutter.EVENT_PROPAGATE;
-                    }); 
+                    });
                     this.menuItem.menu.addMenuItem(sub);
                     this.subs.set(dev.id, sub);
                 }
@@ -628,35 +687,39 @@ class Extension {
             this.menuItem.sensitive = false;
             this.menuItem.hide();
         }
-
     }
 
     /**
      * Callback called when the submenu item is clicked.
      *
-     * @param {InputDevice} dev the device that was clicked 
+     * @param {InputDevice} dev the device that was clicked
      */
     _toggle(dev) {
         if (dev.associated) {
-            //deassociate
+            // deassociate
             this._devices.deassociate(dev);
         } else {
-            //associate to current source
+            // associate to current source
             this._devices.associate(dev, ism.currentSource);
         }
     }
 
     enable() {
         this._settings = new PluggedKbdSettings();
-        this._devices = new Keyboards();        
-        
+        this._devices = new Keyboards();
+        this.detector = new ProcInputDevicesPoller();
+
         this._devices.defaultSource = ism.inputSources[0];
         ism.connect('current-source-changed', this._devices.updateCurrentSource.bind(this._devices));
 
         // connect settings to models
-        //this.settings.connect('rules-changed', () => {this.devices.ruleList = this.settings.rules;})
-        this._devices.connect('changed', () => {this._settings.rules = this._devices.ruleList;});
-        this._settings.connect('show-indicator-changed', () => {this.menuItem.visible = this._settings.showIndicator});
+        // this.settings.connect('rules-changed', () => {this.devices.ruleList = this.settings.rules;})
+        this._devices.connect('changed', () => {
+            this._settings.rules = this._devices.ruleList;
+        });
+        this._settings.connect('show-indicator-changed', () => {
+            this.menuItem.visible = this._settings.showIndicator;
+        });
         this._settings.connect('dev-dir-changed', this._setDevDir.bind(this));
 
         // Connect signals
@@ -664,18 +727,19 @@ class Extension {
 
         // Build UI
         this.parent = Main.panel.statusArea['keyboard']; // InputSourceIndicator
-        this.separator = new PopupMenu. PopupSeparatorMenuItem();
+        this.separator = new PopupMenu.PopupSeparatorMenuItem();
         this.parent.menu.addMenuItem(this.separator);
-        this.menuItem = new PopupMenu.PopupSubMenuMenuItem('No external keyboard', false); //Name of current connected keyboard
+        this.menuItem = new PopupMenu.PopupSubMenuMenuItem('No external keyboard', false); // Name of current connected keyboard
         this.subs = new Map();
         this.parent.menu.addMenuItem(this.menuItem);
-        
+
         // Set rules in the model
         this._devices.ruleList = this._settings.rules;
 
         // Set input device and start monitoring it (and do initial exploration)
-        this._setDevDir();
-        
+        this.detector.connect('keyboard-added', this._devices.add.bind(this));
+        this.detector.connect('keyboard-removed', this._devices.remove.bind(this));
+        this.detector.mainLoopAdd();
     }
 
     disable() {
@@ -685,16 +749,17 @@ class Extension {
         }
         // no need to remove menuitem, it seems...
         if (this.menuItem) {
-            //this.parent.removeMenuItem(this.menuItem);
             this.menuItem.destroy();
             this.separator.destroy();
             this.menuItem = null;
         }
         this._cancelMonitors();
     }
-
 }
 
+/**
+ * Init extension.
+ */
 function init() {
     ExtensionUtils.initTranslations(Me.metadata.uuid);
     return new Extension();
