@@ -1,4 +1,6 @@
-const {Adw, GLib, Gtk, Gio} = imports.gi;
+/* exported init, buildPrefsWidget, fillPreferencesWindow */
+
+const {Adw, Gtk, Gio} = imports.gi;
 
 // It's common practice to keep GNOME API and JS imports in separate blocks
 const ExtensionUtils = imports.misc.extensionUtils;
@@ -33,9 +35,9 @@ function buildPrefsWidget() {
     // Add a widget to the group. This could be any GtkWidget subclass,
     // although usually you would choose preferences rows such as AdwActionRow,
     // AdwComboRow or AdwRevealerRow.
-    const label = new Gtk.Label({ label: `${Me.metadata.name}` });
+    const label = new Gtk.Label({label: `${Me.metadata.name}`});
     prefsWidget.append(label);
-    
+
     return prefsWidget;
 }
 
@@ -51,19 +53,19 @@ function buildPrefsWidget() {
 function fillPreferencesWindow(window) {
     const settings = ExtensionUtils.getSettings(
         'org.gnome.shell.extensions.plugged-kbd');
-    
+
     // Create a preferences page and group
     const page = new Adw.PreferencesPage();
     const group = new Adw.PreferencesGroup();
     page.add(group);
 
     // Create a new preferences row
-    const row = new Adw.ActionRow({ title: 'Show Extension Indicator' });
+    const row = new Adw.ActionRow({title: 'Show Extension Indicator'});
     group.add(row);
 
     // Create the switch and bind its value to the `show-indicator` key
     const toggle = new Gtk.Switch({
-        active: settings.get_boolean ('show-indicator'),
+        active: settings.get_boolean('show-indicator'),
         valign: Gtk.Align.CENTER,
     });
     settings.bind(
@@ -79,6 +81,4 @@ function fillPreferencesWindow(window) {
 
     // Add our page to the window
     window.add(page);
-
-    
 }
