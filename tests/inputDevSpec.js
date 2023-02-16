@@ -48,4 +48,13 @@ describe('An input device', function () {
         expect(dev._devices.get('event20')).toBe('testtesttest2');
         expect(dev.displayName).toBe('Planck');
     });
+
+    it('can get event devices associated', function () {
+        dev.addPhys('event3', 'testtesttest');
+        dev.addPhys('event20', 'testtesttest2');
+        expect([...dev.getEventDevices()]).toContain('event3');
+        expect([...dev.getEventDevices()]).toContain('event20');
+        expect(dev.getPhys('event3')).toBe('testtesttest');
+        expect(dev.getPhys('event20')).toBe('testtesttest2');
+    });
 });

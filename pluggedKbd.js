@@ -41,6 +41,14 @@ var InputDevice = class InputDevice {
         }
     }
 
+    getEventDevices() {
+        return this._devices.keys();
+    }
+
+    getPhys(ev) {
+        return this._devices.get(ev);
+    }
+
     toString() {
         /**
          * Transform a (event, phys) tuple to string.
@@ -226,8 +234,10 @@ var ProcInputDevicesPoller = class ProcInputDevicesPoller  {
     }
 
     toString() {
-        const values = new Array(this._register.values());
-        return `[ ${values.map(toString).join('; ')}]`;
+        const str = [];
+        for (const dev of this._register.values())
+            str.push(dev.toString());
+        return `[ ${str.join('; ')}]`;
     }
 
     mainLoopAdd() {
