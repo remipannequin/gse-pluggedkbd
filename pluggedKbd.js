@@ -25,7 +25,7 @@ const Signals = imports.signals;
 /**
  * An input device as described in /proc/bus/input/device (partially).
  */
-class InputDevice {
+var InputDevice = class InputDevice {
     constructor(name) {
         this._name = name;
         this._displayName = name;
@@ -91,7 +91,6 @@ class InputDevice {
     _queryName(eventId) {
         // log(`udevadm info /dev/input/${eventId}`);
         let [, stdout, , status] = GLib.spawn_command_line_sync(`udevadm info /dev/input/${eventId}`);
-
         if (status !== 0) {
             // default value
             return;
@@ -107,7 +106,7 @@ class InputDevice {
             }
         }
     }
-}
+};
 
 
 
