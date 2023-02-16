@@ -32,6 +32,7 @@ const ism = Status.keyboard.getInputSourceManager();
 const Domain = Gettext.domain(Me.metadata.uuid);
 const _ = Domain.gettext;
 
+
 /**
  * An input device as described in /proc/bus/input/device (partially).
  */
@@ -116,6 +117,7 @@ class InputDevice {
         }
     }
 }
+
 
 
 /**
@@ -256,11 +258,12 @@ class ProcInputDevicesPoller  {
 Signals.addSignalMethods(ProcInputDevicesPoller.prototype);
 
 
+
 /**
  * A very simple representation of an input device, based on its name in /dev/input/by-id
  */
 class Keyboard {
-    constructor(id, connected = true, name) {
+    constructor(id, connected = true, name, priority = 1) {
         this.id = id;
         this.connected = connected;
         this.associated = null;
@@ -268,6 +271,7 @@ class Keyboard {
             this.displayName = name;
         else
             this.displayName = id;
+        this.prio = priority;
     }
 
     /**
@@ -279,12 +283,15 @@ class Keyboard {
         this.associated = is;
     }
 
+    /**
+     * remove association to an input source.
+     */
     deassociate() {
         this.associated = null;
     }
 
     toString() {
-        let s = `Kbd ${this.id} (${this.displayName}) `;
+        let s = `Kbd ${this.id} (${this.displayName}) with priority ${this.prio} `;
         if (this.connected)
             s += 'connected, ';
         else
@@ -292,7 +299,7 @@ class Keyboard {
         if (this.associated)
             s += `associated to: ${this.associated.shortName}`;
         else
-            s += 'not associsated';
+            s += 'not associated';
         return s;
     }
 }
@@ -327,6 +334,7 @@ class Keyboards {
         this._map = new Map();
         this._current = null;
         this._defaultSource = null;
+        this._currentSource = null;
     }
 
     /**
@@ -340,19 +348,35 @@ class Keyboards {
      * @param {InputDevice} dev the device that was added or removed
      */
     _execRules(eventType, dev) {
+        const currentSrc = ism.currentSource;
         switch (eventType) {
         case RuleTrigger.PLUGGED_IN:
-            if (dev.associated) {
+            // Check whether newly plugged keyboard's priority is greater or equal than current's priority (if any current)
+            // and is associated to an input source
+            if (this._current && this._current.prio <= dev.prio && dev.associated) {
+                // make this dev current
                 dev.associated.activate();
                 this._current = dev;
-                this._emitChanged();
             }
+            // If current is null and current is match those of the pluged in dev, set it as current
+            if (!this._current && dev.associated && dev.associated.id === currentSrc.id)
+                this._current = dev;
+
+            this._emitChanged();
             break;
         case RuleTrigger.PLUGGED_OUT:
             // Only the current dev trigger a change of input source (i.e. if the user selected manually another source, nothing is changed)
+            log(`removing ${dev}`);
+            log(`current is ${this._current}`);
             if (dev.associated && dev === this._current) {
                 // Search for connected keyboard, first one becomes new current
-                for (const other of this._map.values()) {
+                const candidates = [...this._map.values()];
+                // sort by priority
+                candidates.sort((a, b) => {
+                    return a.prio - b.prio;
+                });
+                for (const other of candidates) {
+                    log(`eximining candidate ${other}`);
                     if (other.associated && other.connected) {
                         other.associated.activate();
                         this._current = other;
@@ -388,7 +412,6 @@ class Keyboards {
             dev.connected = true;
         } else {
             dev = new Keyboard(inputDev.name, true, inputDev.displayName);
-            log(dev);
             this._map.set(dev.id, dev);
         }
         // trigger plugged_in rules
@@ -405,8 +428,8 @@ class Keyboards {
     remove(detector, inputDevId) {
         let inputDev = detector.getDevice(inputDevId);
         // If dev already exists, and has no association, remove it
-        if (this._map.has(inputDev.id)) {
-            let dev = this._map.get(inputDev.id);
+        if (this._map.has(inputDev.name)) {
+            let dev = this._map.get(inputDev.name);
             dev.connected = false;
             // trigger plugged_in rules
             this._execRules(RuleTrigger.PLUGGED_OUT, dev);
@@ -435,8 +458,18 @@ class Keyboards {
      * @param {InputSource} source the input source to associate
      */
     associate(dev, source) {
+        // change priority: set to current max of associated keyboards + 1
+        let newPrio = 0;
+        const devs = [...this._map.values()];
+        const max = Math.max(...devs.map(e => e.prio));
+        log(`devices: ${devs}, size ${devs.size}`);
+        log(max);
+        if (max !== undefined)
+            newPrio = max + 1;
+        dev.prio = newPrio;
         dev.associate(source);
         this._current = dev;
+        log(dev);
         this._emitChanged();
     }
 
@@ -455,7 +488,7 @@ class Keyboards {
         let result =  [];
         for (let dev of this._map.values()) {
             if (dev.associated)
-                result.push({kbdId: dev.id, kbdName: dev.displayName, srcId: dev.associated.id});
+                result.push({kbdId: dev.id, kbdPrio: dev.prio, kbdName: dev.displayName, srcId: dev.associated.id});
         }
         return result;
     }
@@ -466,10 +499,10 @@ class Keyboards {
             let is = ism.inputSources[i];
             src.set(is.id, is);
         }
-        for (const [kbdId, kbdName, isId] of list) {
+        for (const [kbdId, kbdPrio, kbdName, isId] of list) {
             if (src.has(isId)) {
                 const is = src.get(isId);
-                const dev = new InputDevice(kbdId, false, kbdName);
+                const dev = new Keyboard(kbdId, false, kbdName, kbdPrio);
                 this._map.set(kbdId, dev);
                 dev.associate(is);
             } else {
@@ -523,6 +556,7 @@ class Keyboards {
 Signals.addSignalMethods(Keyboards.prototype);
 
 
+
 /**
  * Display an inputDevice as a MenuItem
  */
@@ -561,7 +595,7 @@ var LayoutMenuItem = GObject.registerClass(
             if (this.dev.connected)
                 return this.dev.displayName;
             else
-                return `<i>${this.dev.name()}</i>`;
+                return `<i>${this.dev.displayName}</i>`;
         }
 
         /**
@@ -586,16 +620,19 @@ var LayoutMenuItem = GObject.registerClass(
     });
 
 
+
+/**
+ * Extensions settings
+ */
 class PluggedKbdSettings {
     constructor() {
         this._SCHEMA = 'org.gnome.shell.extensions.plugged-kbd';
         this._KEY_RULES = 'rules';
-        this._KEY_SHOW_INDICATOR = 'show-indicator';
+        this._KEY_ALWAYS_SHOW_MENUITEM = 'always-show-menuitem';
         this._KEY_DEV_INPUT_DIR = 'dev-input-dir';
         this._settings = ExtensionUtils.getSettings(this._SCHEMA);
         this._settings.connect(`changed::${this._KEY_RULES}`, this._emitRulesChanged.bind(this));
-        this._settings.connect(`changed::${this._KEY_SHOW_INDICATOR}`, this._emitShowIndicatorChanged.bind(this));
-        this._settings.connect(`changed::${this._KEY_DEV_INPUT_DIR}`, this._emitDevDirChanged.bind(this));
+        this._settings.connect(`changed::${this._KEY_ALWAYS_SHOW_MENUITEM}`, this._emitShowIndicatorChanged.bind(this));
     }
 
     _emitRulesChanged() {
@@ -603,20 +640,17 @@ class PluggedKbdSettings {
     }
 
     _emitShowIndicatorChanged() {
-        this.emit('show-indicator-changed');
-    }
-
-    _emitDevDirChanged() {
-        this.emit('dev-dir-changed');
+        this.emit('always-show-menuitem-changed');
     }
 
     set rules(ruleList) {
         let result =  [];
 
-        let  childType = new GLib.VariantType('(sss)');
+        let  childType = new GLib.VariantType('(suss)');
         for (const elt of ruleList) {
-            let assoc = new GLib.Variant('(sss)', [
+            let assoc = new GLib.Variant('(suss)', [
                 elt.kbdId,
+                elt.priority,
                 elt.kbdName,
                 elt.srcId,
             ]);
@@ -631,16 +665,11 @@ class PluggedKbdSettings {
         return v.recursiveUnpack();
     }
 
-    get showIndicator() {
-        return this._settings.get_boolean(this._KEY_SHOW_INDICATOR);
-    }
-
-    get devDir() {
-        return this._settings.get_string(this._KEY_DEV_INPUT_DIR);
+    get alwaysShowMenuitem() {
+        return this._settings.get_boolean(this._KEY_ALWAYS_SHOW_MENUITEM);
     }
 }
 Signals.addSignalMethods(PluggedKbdSettings.prototype);
-
 
 
 
@@ -699,12 +728,13 @@ class Extension {
                 }
             }
         } else {
+            if (!this._settings.alwaysShowMenuitem)
+                this.menuItem.hide();
             this.menuItem.menu.removeAll();
             this.subs.clear();
             // Maybe just hide menu item
             this.menuItem.label.text = _('No external keyboards');
             this.menuItem.sensitive = false;
-            this.menuItem.hide();
         }
     }
 
@@ -735,9 +765,6 @@ class Extension {
         // this.settings.connect('rules-changed', () => {this.devices.ruleList = this.settings.rules;})
         this._devices.connect('changed', () => {
             this._settings.rules = this._devices.ruleList;
-        });
-        this._settings.connect('show-indicator-changed', () => {
-            this.menuItem.visible = this._settings.showIndicator;
         });
 
         // Connect signals

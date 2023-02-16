@@ -60,16 +60,17 @@ function fillPreferencesWindow(window) {
     page.add(group);
 
     // Create a new preferences row
-    const row = new Adw.ActionRow({title: 'Show Extension Indicator'});
+    const row = new Adw.ActionRow({title: 'Always Show Keyboards Menu'});
+    row.description = 'add an item in the input source menu, even if that is only one keyboard';
     group.add(row);
 
     // Create the switch and bind its value to the `show-indicator` key
     const toggle = new Gtk.Switch({
-        active: settings.get_boolean('show-indicator'),
+        active: settings.get_boolean('always-show-menuitem'),
         valign: Gtk.Align.CENTER,
     });
     settings.bind(
-        'show-indicator',
+        'always-show-menuitem',
         toggle,
         'active',
         Gio.SettingsBindFlags.DEFAULT
@@ -78,6 +79,7 @@ function fillPreferencesWindow(window) {
     // Add the switch to the row
     row.add_suffix(toggle);
     row.activatable_widget = toggle;
+
 
     // Add our page to the window
     window.add(page);

@@ -2,14 +2,11 @@
 <!DOCTYPE schemalist PUBLIC "gschema" "https://gitlab.gnome.org/GNOME/glib/raw/master/gio/gschema.dtd">
 <schemalist>
   <schema id="org.gnome.shell.extensions.plugged-kbd" path="/org/gnome/shell/extensions/plugged-kbd/">
-    <key name="show-indicator" type="b">
-      <default>true</default>
+    <key name="always-show-menuitem" type="b">
+      <default>false</default>
     </key>
-    <key name="rules" type="a(sss)">
+    <key name="rules" type="a(suss)">
       <default>[]</default>
-    </key>
-    <key name="dev-input-dir" type="s">
-      <default>"/dev/input/by-id/"</default>
     </key>
   </schema>
 </schemalist>
