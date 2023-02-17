@@ -335,7 +335,7 @@ var Keyboards = class Keyboards {
         this._map = new Map();
         this._current = null;
         this._defaultSource = null;
-        this._currentSource = null;
+        this._currentSource = ism.currentSource;
     }
 
     /**
@@ -355,6 +355,7 @@ var Keyboards = class Keyboards {
             // Check whether newly plugged keyboard's priority is greater or equal than current's priority (if any current)
             // and is associated to an input source
             if (this._current && this._current.prio <= dev.prio && dev.associated) {
+                // log(`making ${dev} current`);
                 // make this dev current
                 dev.associated.activate();
                 this._current = dev;
@@ -367,8 +368,8 @@ var Keyboards = class Keyboards {
             break;
         case RuleTrigger.PLUGGED_OUT:
             // Only the current dev trigger a change of input source (i.e. if the user selected manually another source, nothing is changed)
-            log(`removing ${dev}`);
-            log(`current is ${this._current}`);
+            // log(`removing ${dev}`);
+            // log(`current is ${this._current}`);
             if (dev.associated && dev === this._current) {
                 // Search for connected keyboard, first one becomes new current
                 const candidates = [...this._map.values()];
@@ -377,7 +378,7 @@ var Keyboards = class Keyboards {
                     return a.prio - b.prio;
                 });
                 for (const other of candidates) {
-                    log(`eximining candidate ${other}`);
+                    // log(`eximining candidate ${other}`);
                     if (other.associated && other.connected) {
                         other.associated.activate();
                         this._current = other;
@@ -385,11 +386,10 @@ var Keyboards = class Keyboards {
                         return;
                     }
                 }
-                if (this._defaultSource) {
+                if (this._defaultSource)
                     this._defaultSource.activate();
-                    this._current = null;
-                    this._emitChanged();
-                }
+                this._current = null;
+                this._emitChanged();
             }
         }
     }
@@ -408,15 +408,16 @@ var Keyboards = class Keyboards {
         let dev;
         let inputDev = detector.getDevice(inputDevId);
         // If device already exists, only update its connected status
-        log(`adding ${inputDev}`);
+        // log(`adding ${inputDev}`);
         if (this._map.has(inputDev.name)) {
             dev = this._map.get(inputDev.name);
             dev.connected = true;
-            log(`found existing keyboard: ${dev}`);
+            // log(`found existing keyboard: ${dev}`);
         } else {
-            dev = new Keyboard(inputDev.name, true, inputDev.displayName);
+            let prio = this.size();
+            dev = new Keyboard(inputDev.name, true, inputDev.displayName, prio);
             this._map.set(dev.id, dev);
-            log(`created new keyboard: ${dev}`);
+            // log(`created new keyboard: ${dev}`);
         }
         // trigger plugged_in rules
         this._execRules(RuleTrigger.PLUGGED_IN, dev);
@@ -443,7 +444,7 @@ var Keyboards = class Keyboards {
         }
     }
 
-    set  defaultSource(source) {
+    set defaultSource(source) {
         this._defaultSource = source;
     }
 
@@ -462,18 +463,9 @@ var Keyboards = class Keyboards {
      * @param {InputSource} source the input source to associate
      */
     associate(dev, source) {
-        // change priority: set to current max of associated keyboards + 1
-        let newPrio = 0;
-        const devs = [...this._map.values()];
-        const max = Math.max(...devs.map(e => e.prio));
-        log(`devices: ${devs}, size ${devs.size}`);
-        log(max);
-        if (max !== undefined)
-            newPrio = max + 1;
-        dev.prio = newPrio;
         dev.associate(source);
-        this._current = dev;
-        log(dev);
+        if (this._currentSource.id === source.id)
+            this._current = dev;
         this._emitChanged();
     }
 
@@ -484,7 +476,9 @@ var Keyboards = class Keyboards {
      */
     deassociate(dev) {
         dev.deassociate();
-        this._current = null;
+        // TODO: no, exec rules
+        if (this._current === dev)
+            this._current = null;
         this._emitChanged();
     }
 
@@ -529,6 +523,10 @@ var Keyboards = class Keyboards {
         return this._map.has(kbdId);
     }
 
+    get(kbdId) {
+        return this._map.get(kbdId);
+    }
+
     values() {
         return this._map.values();
     }
@@ -542,7 +540,7 @@ var Keyboards = class Keyboards {
     updateCurrentSource() {
         // The new source
         const src = this._ism.currentSource;
-
+        this._currentSource = src;
         // Go through the list of connected and associated devices
         // If the new source match, this is the new current
         for (const dev of this._map.values()) {
