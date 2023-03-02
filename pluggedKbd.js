@@ -352,18 +352,24 @@ var Keyboards = class Keyboards {
         const currentSrc = this._ism.currentSource;
         switch (eventType) {
         case RuleTrigger.PLUGGED_IN:
-            // Check whether newly plugged keyboard's priority is greater or equal than current's priority (if any current)
-            // and is associated to an input source
-            if (this._current && this._current.prio <= dev.prio && dev.associated) {
-                // log(`making ${dev} current`);
-                // make this dev current
-                dev.associated.activate();
-                this._current = dev;
+            // if dev is not associated, do nothing
+            if (dev.associated) {
+                // Check whether newly plugged keyboard's priority is greater or equal than current's priority (if any current)
+                if (this._current) {
+                    if (this._current.prio <= dev.prio) {
+                        // log(`making ${dev} current`);
+                        // make this dev current
+                        dev.associated.activate();
+                        this._current = dev;
+                    }
+                } else {
+                    // No current device
+                    if (dev.associated.id !== currentSrc.id)
+                        // Activate source if not already done
+                        dev.associated.activate();
+                    this._current = dev;
+                }
             }
-            // If current is null and current is match those of the pluged in dev, set it as current
-            if (!this._current && dev.associated && dev.associated.id === currentSrc.id)
-                this._current = dev;
-
             this._emitChanged();
             break;
         case RuleTrigger.PLUGGED_OUT:
