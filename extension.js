@@ -182,8 +182,12 @@ class Extension {
                     sub.destroy();
                 }
             }
-            // Iterate over devices
-            for (const dev of this._devices.values()) {
+            // Iterate over devices, sorted by priority
+            const devs = [...this._devices.values()];
+            devs.sort((a, b) => {
+                return a.prio - b.prio;
+            });
+            for (const dev of devs) {
                 let cur = this._devices.current === dev;
                 let sub;
                 if (this.subs.has(dev.id)) {
