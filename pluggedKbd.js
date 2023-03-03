@@ -22,6 +22,7 @@ const ByteArray = imports.byteArray;
 const Mainloop = imports.mainloop;
 const Signals = imports.signals;
 
+
 /**
  * An input device as described in /proc/bus/input/device (partially).
  */
@@ -562,3 +563,58 @@ var Keyboards = class Keyboards {
     }
 };
 Signals.addSignalMethods(Keyboards.prototype);
+
+
+/**
+ * Extensions settings
+ */
+var PluggedKbdSettings = class PluggedKbdSettings {
+    constructor(extension) {
+        this._SCHEMA = 'org.gnome.shell.extensions.plugged-kbd';
+        this._KEY_RULES = 'rules';
+        this._KEY_ALWAYS_SHOW_MENUITEM = 'always-show-menuitem';
+        this._KEY_DEV_INPUT_DIR = 'dev-input-dir';
+        this._settings = extension.getSettings(this._SCHEMA);
+        this._settings.connect(`changed::${this._KEY_RULES}`, this._emitRulesChanged.bind(this));
+        this._settings.connect(`changed::${this._KEY_ALWAYS_SHOW_MENUITEM}`, this._emitShowIndicatorChanged.bind(this));
+    }
+
+    _emitRulesChanged() {
+        this.emit('rules-changed');
+    }
+
+    _emitShowIndicatorChanged() {
+        this.emit('always-show-menuitem-changed');
+    }
+
+    set rules(ruleList) {
+        let result =  [];
+
+        let  childType = new GLib.VariantType('(suss)');
+        for (const elt of ruleList) {
+            let assoc = new GLib.Variant('(suss)', [
+                elt.kbdId,
+                elt.priority,
+                elt.kbdName,
+                elt.srcId,
+            ]);
+            result.push(assoc);
+        }
+        let v = GLib.Variant.new_array(childType, result);
+        this._settings.set_value('rules', v);
+    }
+
+    get rules() {
+        const v = this._settings.get_value('rules');
+        return v.recursiveUnpack();
+    }
+
+    get alwaysShowMenuitem() {
+        return this._settings.get_boolean(this._KEY_ALWAYS_SHOW_MENUITEM);
+    }
+
+    bindAlwaysShowMenuitem(obj, attr, flags) {
+        this._settings.bind(this._KEY_ALWAYS_SHOW_MENUITEM, obj, attr, flags);
+    }
+};
+Signals.addSignalMethods(PluggedKbdSettings.prototype);

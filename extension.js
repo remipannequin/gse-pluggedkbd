@@ -17,13 +17,12 @@
  */
 
 /* exported init */
-const {Clutter, GObject, GLib, St} = imports.gi;
+const {Clutter, GObject, St} = imports.gi;
 
 const Gettext = imports.gettext;
 const Main = imports.ui.main;
 const PopupMenu = imports.ui.popupMenu;
 const Status  = imports.ui.status;
-const Signals = imports.signals;
 const ExtensionUtils = imports.misc.extensionUtils;
 
 const Me = ExtensionUtils.getCurrentExtension();
@@ -31,7 +30,7 @@ const ism = Status.keyboard.getInputSourceManager();
 const Domain = Gettext.domain(Me.metadata.uuid);
 const _ = Domain.gettext;
 
-const {Keyboards, ProcInputDevicesPoller} = Me.imports.pluggedKbd;
+const {Keyboards, ProcInputDevicesPoller, PluggedKbdSettings} = Me.imports.pluggedKbd;
 
 /**
  * Display an inputDevice as a MenuItem
@@ -94,58 +93,6 @@ var LayoutMenuItem = GObject.registerClass(
                 this.setOrnament(PopupMenu.Ornament.NONE);
         }
     });
-
-
-
-/**
- * Extensions settings
- */
-class PluggedKbdSettings {
-    constructor() {
-        this._SCHEMA = 'org.gnome.shell.extensions.plugged-kbd';
-        this._KEY_RULES = 'rules';
-        this._KEY_ALWAYS_SHOW_MENUITEM = 'always-show-menuitem';
-        this._KEY_DEV_INPUT_DIR = 'dev-input-dir';
-        this._settings = ExtensionUtils.getSettings(this._SCHEMA);
-        this._settings.connect(`changed::${this._KEY_RULES}`, this._emitRulesChanged.bind(this));
-        this._settings.connect(`changed::${this._KEY_ALWAYS_SHOW_MENUITEM}`, this._emitShowIndicatorChanged.bind(this));
-    }
-
-    _emitRulesChanged() {
-        this.emit('rules-changed');
-    }
-
-    _emitShowIndicatorChanged() {
-        this.emit('always-show-menuitem-changed');
-    }
-
-    set rules(ruleList) {
-        let result =  [];
-
-        let  childType = new GLib.VariantType('(suss)');
-        for (const elt of ruleList) {
-            let assoc = new GLib.Variant('(suss)', [
-                elt.kbdId,
-                elt.priority,
-                elt.kbdName,
-                elt.srcId,
-            ]);
-            result.push(assoc);
-        }
-        let v = GLib.Variant.new_array(childType, result);
-        this._settings.set_value('rules', v);
-    }
-
-    get rules() {
-        const v = this._settings.get_value('rules');
-        return v.recursiveUnpack();
-    }
-
-    get alwaysShowMenuitem() {
-        return this._settings.get_boolean(this._KEY_ALWAYS_SHOW_MENUITEM);
-    }
-}
-Signals.addSignalMethods(PluggedKbdSettings.prototype);
 
 
 
@@ -234,7 +181,7 @@ class Extension {
     }
 
     enable() {
-        this._settings = new PluggedKbdSettings();
+        this._settings = new PluggedKbdSettings(ExtensionUtils);
         this._devices = new Keyboards(ism);
         this.detector = new ProcInputDevicesPoller();
 
