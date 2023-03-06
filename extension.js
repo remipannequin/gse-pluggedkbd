@@ -189,7 +189,9 @@ class Extension {
         ism.connect('current-source-changed', this._devices.updateCurrentSource.bind(this._devices));
 
         // connect settings to models
-        // this.settings.connect('rules-changed', () => {this.devices.ruleList = this.settings.rules;})
+        this._settings.connect('rules-changed', () => {
+            this._devices.ruleList = this._settings.rules;
+        });
         this._devices.connect('changed', () => {
             this._settings.rules = this._devices.ruleList;
         });
