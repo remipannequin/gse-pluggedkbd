@@ -493,7 +493,7 @@ var Keyboards = class Keyboards {
         let result =  [];
         for (let dev of this._map.values()) {
             if (dev.associated)
-                result.push({kbdId: dev.id, kbdPrio: dev.prio, kbdName: dev.displayName, srcId: dev.associated.id});
+                result.push({kbdId: dev.id, priority: dev.prio, kbdName: dev.displayName, srcId: dev.associated.id});
         }
         return result;
     }
