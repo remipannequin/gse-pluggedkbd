@@ -30,7 +30,10 @@ const ism = Status.keyboard.getInputSourceManager();
 const Domain = Gettext.domain(Me.metadata.uuid);
 const _ = Domain.gettext;
 
+const pluggedKbd = Me.imports.pluggedKbd;
 const {Keyboards, ProcInputDevicesPoller, PluggedKbdSettings} = Me.imports.pluggedKbd;
+
+
 
 /**
  * Display an inputDevice as a MenuItem
@@ -184,6 +187,10 @@ class Extension {
         this._settings = new PluggedKbdSettings(ExtensionUtils);
         this._devices = new Keyboards(ism);
         this.detector = new ProcInputDevicesPoller();
+
+        // Log message to console if set in verbose mode
+        if (this._settings.verbose)
+            pluggedKbd.debug = console.log;
 
         this._devices.defaultSource = ism.inputSources[0];
         ism.connect('current-source-changed', this._devices.updateCurrentSource.bind(this._devices));

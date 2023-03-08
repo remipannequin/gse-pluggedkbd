@@ -5,6 +5,9 @@
     <key name="always-show-menuitem" type="b">
       <default>false</default>
     </key>
+    <key name="debug-messages" type="b">
+      <default>false</default>
+    </key>
     <key name="rules" type="a(suss)">
       <default>[]</default>
     </key>

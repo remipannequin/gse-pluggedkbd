@@ -50,9 +50,26 @@ function fillPreferencesWindow(window) {
         Gio.SettingsBindFlags.DEFAULT
     );
 
+
+
     // Add the switch to the row
     row.add_suffix(toggle);
     row.activatable_widget = toggle;
+
+    const row2 = new Adw.ActionRow({title: 'Log debug messages'});
+    group.add(row2);
+    const toggle2 = new Gtk.Switch({
+        active: settings.verbose,
+        valign: Gtk.Align.CENTER,
+    });
+
+    settings.bindVerbose(
+        toggle2,
+        'active',
+        Gio.SettingsBindFlags.DEFAULT
+    );
+    row2.add_suffix(toggle2);
+    row2.activatable_widget = toggle2;
 
     // Add our page to the window
     window.add(page);
@@ -93,6 +110,7 @@ class KbdListGroup {
             const editButton = new Gtk.Button({icon_name: 'document-properties-symbolic', vexpand: false, valign: Gtk.Align.CENTER});
             editButton.connect('clicked', this.showkbdDialog.bind(this, rules, kbdId));
             kbdRow.add_suffix(editButton);
+            kbdRow.activatable_widget = editButton;
             this.group.add(kbdRow);
             this._rows.push(kbdRow);
             this._buttons.push(editButton);

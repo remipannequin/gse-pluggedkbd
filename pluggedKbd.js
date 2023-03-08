@@ -22,6 +22,7 @@ const ByteArray = imports.byteArray;
 const Mainloop = imports.mainloop;
 const Signals = imports.signals;
 
+var debug = () => {};
 
 /**
  * An input device as described in /proc/bus/input/device (partially).
@@ -98,7 +99,6 @@ var InputDevice = class InputDevice {
      * @param {str} eventId the path of the device to query (e.g. /dev/input/event12)
      */
     _queryName(eventId) {
-        // log(`udevadm info /dev/input/${eventId}`);
         let [, stdout, , status] = GLib.spawn_command_line_sync(`udevadm info /dev/input/${eventId}`);
         if (status !== 0) {
             // default value
@@ -358,7 +358,7 @@ var Keyboards = class Keyboards {
                 // Check whether newly plugged keyboard's priority is greater or equal than current's priority (if any current)
                 if (this._current) {
                     if (this._current.prio <= dev.prio) {
-                        // log(`making ${dev} current`);
+                        debug(`making ${dev} current`);
                         // make this dev current
                         dev.associated.activate();
                         this._current = dev;
@@ -375,8 +375,8 @@ var Keyboards = class Keyboards {
             break;
         case RuleTrigger.PLUGGED_OUT:
             // Only the current dev trigger a change of input source (i.e. if the user selected manually another source, nothing is changed)
-            // log(`removing ${dev}`);
-            // log(`current is ${this._current}`);
+            debug(`removing ${dev}`);
+            debug(`current is ${this._current}`);
             if (dev.associated && dev === this._current) {
                 // Search for connected keyboard, first one becomes new current
                 const candidates = [...this._map.values()];
@@ -385,7 +385,7 @@ var Keyboards = class Keyboards {
                     return a.prio - b.prio;
                 });
                 for (const other of candidates) {
-                    // log(`eximining candidate ${other}`);
+                    debug(`eximining candidate ${other}`);
                     if (other.associated && other.connected) {
                         other.associated.activate();
                         this._current = other;
@@ -415,16 +415,16 @@ var Keyboards = class Keyboards {
         let dev;
         let inputDev = detector.getDevice(inputDevId);
         // If device already exists, only update its connected status
-        // log(`adding ${inputDev}`);
+        debug(`adding ${inputDev}`);
         if (this._map.has(inputDev.name)) {
             dev = this._map.get(inputDev.name);
             dev.connected = true;
-            // log(`found existing keyboard: ${dev}`);
+            debug(`found existing keyboard: ${dev}`);
         } else {
             let prio = this.size();
             dev = new Keyboard(inputDev.name, true, inputDev.displayName, prio);
             this._map.set(dev.id, dev);
-            // log(`created new keyboard: ${dev}`);
+            debug(`created new keyboard: ${dev}`);
         }
         // trigger plugged_in rules
         this._execRules(RuleTrigger.PLUGGED_IN, dev);
@@ -573,7 +573,8 @@ var PluggedKbdSettings = class PluggedKbdSettings {
         this._SCHEMA = 'org.gnome.shell.extensions.plugged-kbd';
         this._KEY_RULES = 'rules';
         this._KEY_ALWAYS_SHOW_MENUITEM = 'always-show-menuitem';
-        this._KEY_DEV_INPUT_DIR = 'dev-input-dir';
+
+        this._KEY_VERBOSE = 'debug-messages';
         this._settings = extension.getSettings(this._SCHEMA);
         this._settings.connect(`changed::${this._KEY_RULES}`, this._emitRulesChanged.bind(this));
         this._settings.connect(`changed::${this._KEY_ALWAYS_SHOW_MENUITEM}`, this._emitShowIndicatorChanged.bind(this));
@@ -615,6 +616,14 @@ var PluggedKbdSettings = class PluggedKbdSettings {
 
     bindAlwaysShowMenuitem(obj, attr, flags) {
         this._settings.bind(this._KEY_ALWAYS_SHOW_MENUITEM, obj, attr, flags);
+    }
+
+    get verbose() {
+        return this._settings.get_boolean(this._KEY_VERBOSE);
+    }
+
+    bindVerbose(obj, attr, flags) {
+        this._settings.bind(this._KEY_VERBOSE, obj, attr, flags);
     }
 };
 Signals.addSignalMethods(PluggedKbdSettings.prototype);
