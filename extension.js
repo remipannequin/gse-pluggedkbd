@@ -234,7 +234,8 @@ class Extension {
             this.separator.destroy();
             this.menuItem = null;
         }
-        this._cancelMonitors();
+        // Cancel device monitoring
+        this.detector.mainLoopRemove();
     }
 }
 
