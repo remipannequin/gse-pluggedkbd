@@ -105,6 +105,13 @@ class Extension {
         this._timeout = null;
         this._devices = null;
         this._settings = null;
+        // Signal handlers
+        this._ism_handler = null;
+        this._device_handler1 = null;
+        this._device_handler2 = null;
+        this._settings_handler = null;
+        this._detector_handler1 = null;
+        this._detector_handler2 = null;
     }
 
     /**
@@ -186,25 +193,25 @@ class Extension {
     enable() {
         this._settings = new PluggedKbdSettings(ExtensionUtils);
         this._devices = new Keyboards(ism);
-        this.detector = new ProcInputDevicesPoller();
+        this._detector = new ProcInputDevicesPoller();
 
         // Log message to console if set in verbose mode
         if (this._settings.verbose)
             pluggedKbd.debug = console.log;
 
         this._devices.defaultSource = ism.inputSources[0];
-        ism.connect('current-source-changed', this._devices.updateCurrentSource.bind(this._devices));
+        this._ism_handler = ism.connect('current-source-changed', this._devices.updateCurrentSource.bind(this._devices));
 
         // connect settings to models
-        this._settings.connect('rules-changed', () => {
+        this._settings_handler = this._settings.connect('rules-changed', () => {
             this._devices.ruleList = this._settings.rules;
         });
-        this._devices.connect('changed', () => {
+        this._device_handler1 = this._devices.connect('changed', () => {
             this._settings.rules = this._devices.ruleList;
         });
 
-        // Connect signals
-        this._devices.connect('changed', this._updateSubmenu.bind(this));
+        // Update UI when Keybaords register changes
+        this._device_handler2 = this._devices.connect('changed', this._updateSubmenu.bind(this));
 
         // Build UI
         this.parent = Main.panel.statusArea['keyboard']; // InputSourceIndicator
@@ -218,15 +225,23 @@ class Extension {
         this._devices.ruleList = this._settings.rules;
 
         // Set input device and start monitoring it (and do initial exploration)
-        this.detector.connect('keyboard-added', this._devices.add.bind(this._devices));
-        this.detector.connect('keyboard-removed', this._devices.remove.bind(this._devices));
-        this.detector.mainLoopAdd();
+        this._detector_handler1 = this._detector.connect('keyboard-added', this._devices.add.bind(this._devices));
+        this._detector_handler2 = this._detector.connect('keyboard-removed', this._devices.remove.bind(this._devices));
+        this._detector.mainLoopAdd(10); // 10s timeout to avoid having input source beeing reset by something else
     }
 
     disable() {
-        if (this._devices) {
-            this._devices = null;
+        // Disconnect signals
+        if (this._ism_handler)
+            ism.disconnect(this._ism_handler);
+        if (this._settings) {
+            this._settings.disconnect(this._settings_handler);
             this._settings = null;
+        }
+        if (this._devices) {
+            this._devices.disconnect(this._device_handler1);
+            this._devices.disconnect(this._device_handler2);
+            this._devices = null;
         }
         // no need to remove menuitem, it seems...
         if (this.menuItem) {
@@ -235,7 +250,12 @@ class Extension {
             this.menuItem = null;
         }
         // Cancel device monitoring
-        this.detector.mainLoopRemove();
+        if (this._detector) {
+            this._detector.disconnect(this._detector_handler1);
+            this._detector.disconnect(this._detector_handler2);
+            this._detector.mainLoopRemove();
+            this._detector = null;
+        }
     }
 }
 

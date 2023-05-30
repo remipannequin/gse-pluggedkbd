@@ -50,12 +50,11 @@ function fillPreferencesWindow(window) {
         Gio.SettingsBindFlags.DEFAULT
     );
 
-
-
     // Add the switch to the row
     row.add_suffix(toggle);
     row.activatable_widget = toggle;
 
+    // Logging pref
     const row2 = new Adw.ActionRow({title: 'Log debug messages'});
     group.add(row2);
     const toggle2 = new Gtk.Switch({
@@ -70,6 +69,25 @@ function fillPreferencesWindow(window) {
     );
     row2.add_suffix(toggle2);
     row2.activatable_widget = toggle2;
+
+
+    // Teach-in / aggressive mode
+
+    const row3 = new Adw.ActionRow({title: 'Teach-in mode'});
+    group.add(row3);
+    const toggle3 = new Gtk.Switch({
+        active: settings.verbose,
+        valign: Gtk.Align.CENTER,
+    });
+
+    settings.bindTeachIn(
+        toggle3,
+        'active',
+        Gio.SettingsBindFlags.DEFAULT
+    );
+    row3.add_suffix(toggle3);
+    row3.activatable_widget = toggle3;
+
 
     // Add our page to the window
     window.add(page);

@@ -134,7 +134,7 @@ var ProcInputDevicesPoller = class ProcInputDevicesPoller  {
             phys: /P: Phys=(.*)/,
             dev: /H: Handlers=.*(event\d+).*/,
         };
-        this._PERIOD = 250;
+        this._PERIOD = 500;
         this._removed = [];
         this._added = [];
         this._register = new Map();
@@ -241,8 +241,19 @@ var ProcInputDevicesPoller = class ProcInputDevicesPoller  {
         return `[ ${str.join('; ')}]`;
     }
 
-    mainLoopAdd() {
-        this._timeout = Mainloop.timeout_add(this._PERIOD, this._poll.bind(this));
+    /**
+     * Add a timeout in the Mainloop to periodically poll the devices files.
+     *
+     * @param {numeric} startAfter if specified, start polling after the given number of seconds
+     * @returns false to avoid restarting
+     */
+    mainLoopAdd(startAfter = 0) {
+        this.mainLoopRemove();
+        if (startAfter)
+            this._timeout = Mainloop.timeout_add_seconds(startAfter, this.mainLoopAdd.bind(this));
+        else
+            this._timeout = Mainloop.timeout_add(this._PERIOD, this._poll.bind(this));
+        return false;
     }
 
     mainLoopRemove() {
@@ -353,21 +364,29 @@ var Keyboards = class Keyboards {
         const currentSrc = this._ism.currentSource;
         switch (eventType) {
         case RuleTrigger.PLUGGED_IN:
+            debug(`adding ${dev}`);
             // if dev is not associated, do nothing
             if (dev.associated) {
                 // Check whether newly plugged keyboard's priority is greater or equal than current's priority (if any current)
                 if (this._current) {
+                    debug(`current device is ${this._current}`);
                     if (this._current.prio <= dev.prio) {
-                        debug(`making ${dev} current`);
+                        debug('added device activated and made current');
                         // make this dev current
                         dev.associated.activate();
                         this._current = dev;
+                    } else {
+                        debug('added device not activated');
                     }
                 } else {
                     // No current device
-                    if (dev.associated.id !== currentSrc.id)
+                    debug('no current device');
+                    if (dev.associated.id !== currentSrc.id) {
                         // Activate source if not already done
+                        debug('added device activated');
                         dev.associated.activate();
+                    }
+                    debug('added device made current');
                     this._current = dev;
                 }
             }
@@ -376,7 +395,7 @@ var Keyboards = class Keyboards {
         case RuleTrigger.PLUGGED_OUT:
             // Only the current dev trigger a change of input source (i.e. if the user selected manually another source, nothing is changed)
             debug(`removing ${dev}`);
-            debug(`current is ${this._current}`);
+            debug(`current device is ${this._current}`);
             if (dev.associated && dev === this._current) {
                 // Search for connected keyboard, first one becomes new current
                 const candidates = [...this._map.values()];
@@ -387,14 +406,17 @@ var Keyboards = class Keyboards {
                 for (const other of candidates) {
                     debug(`eximining candidate ${other}`);
                     if (other.associated && other.connected) {
+                        debug('candidate activated and made current');
                         other.associated.activate();
                         this._current = other;
                         this._emitChanged();
                         return;
                     }
                 }
-                if (this._defaultSource)
+                if (this._defaultSource) {
+                    debug('default input source activated');
                     this._defaultSource.activate();
+                }
                 this._current = null;
                 this._emitChanged();
             }
@@ -547,19 +569,57 @@ var Keyboards = class Keyboards {
     updateCurrentSource() {
         // The new source
         const src = this._ism.currentSource;
+        debug(`Input source changed to ${src.id} (previous was ${this._currentSource.id})`);
+        try {
+            throw new Error('Some error occured');
+        } catch (e) {
+            logError(e, 'FooError');
+        }
+        // Update values
         this._currentSource = src;
         // Go through the list of connected and associated devices
         // If the new source match, this is the new current
         for (const dev of this._map.values()) {
             if (dev.connected && dev.associated && dev.associated.id === src.id) {
+                debug(`device ${dev} made current`);
                 this._current = dev;
                 this._emitChanged();
                 return;
             }
         }
         // Else, no kb is current
+        debug('no suitable device found, current is empty');
         this._current = null;
         this._emitChanged();
+    }
+
+    /**
+     * Set the input source to the connected and associated keyboard with the highest priority.
+     * This is useful when no new keyboard needs to be taugh to the extension.
+     */
+    forceInputSource() {
+        // Sort dev by priority
+        const candidates = [...this._map.values()];
+        // sort by priority
+        candidates.sort((a, b) => {
+            return a.prio - b.prio;
+        });
+
+        for (const dev of candidates) {
+            if (dev.connected && dev.associated) {
+                // Found a device that is associated and connected
+                if (this._current !== dev) {
+                    // device is not current, activate it
+                    dev.associated.activate();
+                    debug(`device ${dev} forced to current`);
+                    this._current = dev;
+                    this._emitChanged();
+                } else {
+                    // Found device is already current, nothing to do...
+                }
+                break;
+            }
+        }
     }
 };
 Signals.addSignalMethods(Keyboards.prototype);
@@ -573,11 +633,12 @@ var PluggedKbdSettings = class PluggedKbdSettings {
         this._SCHEMA = 'org.gnome.shell.extensions.plugged-kbd';
         this._KEY_RULES = 'rules';
         this._KEY_ALWAYS_SHOW_MENUITEM = 'always-show-menuitem';
-
         this._KEY_VERBOSE = 'debug-messages';
+        this._KEY_TEACHIN = 'teach-in';
         this._settings = extension.getSettings(this._SCHEMA);
         this._settings.connect(`changed::${this._KEY_RULES}`, this._emitRulesChanged.bind(this));
         this._settings.connect(`changed::${this._KEY_ALWAYS_SHOW_MENUITEM}`, this._emitShowIndicatorChanged.bind(this));
+        this._settings.connect(`changed::${this._KEY_TEACHIN}`, this._emitTeachInChanged.bind(this));
     }
 
     _emitRulesChanged() {
@@ -586,6 +647,10 @@ var PluggedKbdSettings = class PluggedKbdSettings {
 
     _emitShowIndicatorChanged() {
         this.emit('always-show-menuitem-changed');
+    }
+
+    emitTeachInChanged() {
+        this.emit('teach-in-changed');
     }
 
     set rules(ruleList) {
@@ -624,6 +689,14 @@ var PluggedKbdSettings = class PluggedKbdSettings {
 
     bindVerbose(obj, attr, flags) {
         this._settings.bind(this._KEY_VERBOSE, obj, attr, flags);
+    }
+
+    get teachIn() {
+        return this._settings.get_boolean(this._KEY_TEACHIN);
+    }
+
+    bindTeachIn(obj, attr, flags) {
+        this._settings.bind(this._KEY_TEACHIN, obj, attr, flags);
     }
 };
 Signals.addSignalMethods(PluggedKbdSettings.prototype);
