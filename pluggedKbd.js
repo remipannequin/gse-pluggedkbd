@@ -649,7 +649,7 @@ var PluggedKbdSettings = class PluggedKbdSettings {
         this.emit('always-show-menuitem-changed');
     }
 
-    emitTeachInChanged() {
+    _emitTeachInChanged() {
         this.emit('teach-in-changed');
     }
 

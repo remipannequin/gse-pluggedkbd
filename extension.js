@@ -21,6 +21,7 @@ const {Clutter, GObject, St} = imports.gi;
 
 const Gettext = imports.gettext;
 const Main = imports.ui.main;
+const Mainloop = imports.mainloop;
 const PopupMenu = imports.ui.popupMenu;
 const Status  = imports.ui.status;
 const ExtensionUtils = imports.misc.extensionUtils;
@@ -102,6 +103,7 @@ var LayoutMenuItem = GObject.registerClass(
 class Extension {
     constructor() {
         this._monitor = null;
+        // Timeout for forcing input method
         this._timeout = null;
         this._devices = null;
         this._settings = null;
@@ -190,6 +192,14 @@ class Extension {
         }
     }
 
+    /**
+     * Force input source to connected and associated keyboard
+     */
+    _force() {
+        if (!this._settings.teachIn)
+            this._devices.forceInputSource();
+    }
+
     enable() {
         this._settings = new PluggedKbdSettings(ExtensionUtils);
         this._devices = new Keyboards(ism);
@@ -227,10 +237,19 @@ class Extension {
         // Set input device and start monitoring it (and do initial exploration)
         this._detector_handler1 = this._detector.connect('keyboard-added', this._devices.add.bind(this._devices));
         this._detector_handler2 = this._detector.connect('keyboard-removed', this._devices.remove.bind(this._devices));
-        this._detector.mainLoopAdd(10); // 10s timeout to avoid having input source beeing reset by something else
+        this._detector.mainLoopAdd(1); // 1s timeout to avoid having input source beeing reset by something else
+
+        // If not in Teach-in mode, periodically force input source
+        this._timeout = Mainloop.timeout_add(2, this._force.bind(this));
     }
 
     disable() {
+        // Cancel force timemout
+        if (this._timeout) {
+            Mainloop.source_remove(this._timeout);
+            this._timeout = null;
+        }
+
         // Disconnect signals
         if (this._ism_handler)
             ism.disconnect(this._ism_handler);
