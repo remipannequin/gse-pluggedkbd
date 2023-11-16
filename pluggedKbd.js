@@ -17,17 +17,18 @@
  */
 
 
-const {Gio, GLib} = imports.gi;
+import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
+
 const ByteArray = imports.byteArray;
-const Mainloop = imports.mainloop;
-const Signals = imports.signals;
+import * as Signals from 'resource:///org/gnome/shell/misc/signals.js';
 
 var debug = () => {};
 
 /**
  * An input device as described in /proc/bus/input/device (partially).
  */
-var InputDevice = class InputDevice {
+class InputDevice {
     constructor(name) {
         this._name = name;
         this._displayName = name;
@@ -124,8 +125,9 @@ var InputDevice = class InputDevice {
  * 'keyboard-removed' events when a new keyboard is detected or found absent.
  *
  */
-var ProcInputDevicesPoller = class ProcInputDevicesPoller  {
+export class ProcInputDevicesPoller extends Signals.EventEmitter {
     constructor() {
+        super();
         this._FILE = '/proc/bus/input/devices';
         this._PARSING = {
             key: /B: KEY=(.*)/,
@@ -250,15 +252,15 @@ var ProcInputDevicesPoller = class ProcInputDevicesPoller  {
     mainLoopAdd(startAfter = 0) {
         this.mainLoopRemove();
         if (startAfter)
-            this._timeout = Mainloop.timeout_add_seconds(startAfter, this.mainLoopAdd.bind(this));
+            this._timeout = GLib.timeout_add_seconds(GLib.PRIORY_DEFAULT, startAfter, this.mainLoopAdd.bind(this));
         else
-            this._timeout = Mainloop.timeout_add(this._PERIOD, this._poll.bind(this));
+            this._timeout = GLib.timeout_add(GLib.PRIORY_DEFAULT, this._PERIOD, this._poll.bind(this));
         return false;
     }
 
     mainLoopRemove() {
         if (this._timeout) {
-            Mainloop.source_remove(this._timeout);
+            GLib.source_remove(this._timeout);
             this._timeout = null;
         }
     }
@@ -267,8 +269,6 @@ var ProcInputDevicesPoller = class ProcInputDevicesPoller  {
         return this._register.get(id);
     }
 };
-Signals.addSignalMethods(ProcInputDevicesPoller.prototype);
-
 
 
 /**
@@ -341,8 +341,9 @@ const RuleTrigger = Object.freeze({
  * the device is plugged out, the default (first) input source is
  * activated.
  */
-var Keyboards = class Keyboards {
+export class Keyboards extends Signals.EventEmitter {
     constructor(ism) {
+        super();
         this._ism = ism;
         this._map = new Map();
         this._current = null;
@@ -622,14 +623,14 @@ var Keyboards = class Keyboards {
         }
     }
 };
-Signals.addSignalMethods(Keyboards.prototype);
 
 
 /**
  * Extensions settings
  */
-var PluggedKbdSettings = class PluggedKbdSettings {
+export class PluggedKbdSettings extends Signals.EventEmitter {
     constructor(extension) {
+        super();
         this._SCHEMA = 'org.gnome.shell.extensions.plugged-kbd';
         this._KEY_RULES = 'rules';
         this._KEY_ALWAYS_SHOW_MENUITEM = 'always-show-menuitem';
@@ -698,5 +699,5 @@ var PluggedKbdSettings = class PluggedKbdSettings {
     bindTeachIn(obj, attr, flags) {
         this._settings.bind(this._KEY_TEACHIN, obj, attr, flags);
     }
-};
-Signals.addSignalMethods(PluggedKbdSettings.prototype);
+}
+

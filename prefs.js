@@ -1,101 +1,124 @@
 /* exported init, buildPrefsWidget, fillPreferencesWindow */
 
-const {Adw, Gtk, Gio} = imports.gi;
+import Adw from 'gi://Adw';
+import Gtk from 'gi://Gtk';
+import Gio from 'gi://Gio';
 
 
 // It's common practice to keep GNOME API and JS imports in separate blocks
-const ExtensionUtils = imports.misc.extensionUtils;
-const Me = ExtensionUtils.getCurrentExtension();
-const {PluggedKbdSettings} = Me.imports.pluggedKbd;
+import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-/**
- * Like `extension.js` this is used for any one-time setup like translations.
- *
- * @param {ExtensionMeta} meta - An extension meta object, described below.
- */
-function init(meta) {
-    log(`initializing ${meta.name} Preferences`);
+const KEY_RULES = 'rules';
+const KEY_ALWAYS_SHOW_MENUITEM = 'always-show-menuitem';
+const KEY_VERBOSE = 'debug-messages';
+const KEY_TEACHIN = 'teach-in';
+const _SCHEMA = 'org.gnome.shell.extensions.plugged-kbd';
+    
+
+function setRules(ruleList, settings) {
+    let result =  [];
+
+    let  childType = new GLib.VariantType('(suss)');
+    for (const elt of ruleList) {
+        let assoc = new GLib.Variant('(suss)', [
+            elt.kbdId,
+            elt.priority,
+            elt.kbdName,
+            elt.srcId,
+        ]);
+        result.push(assoc);
+    }
+    let v = GLib.Variant.new_array(childType, result);
+    settings.set_value(KEY_RULES, v);
 }
 
-/**
- * This function is called when the preferences window is first created to fill
- * the `Adw.PreferencesWindow`.
- *
- * This function will only be called by GNOME 42 and later. If this function is
- * present, `buildPrefsWidget()` will never be called.
- *
- * @param {Adw.PreferencesWindow} window - The preferences window
- */
-function fillPreferencesWindow(window) {
-    const settings = new PluggedKbdSettings(ExtensionUtils);
-
-    // Create a preferences page and group
-    const page = new Adw.PreferencesPage();
-    const group = new Adw.PreferencesGroup();
-    page.add(group);
-
-    // Create a new preferences row
-    const row = new Adw.ActionRow({title: 'Always Show Keyboards Menu'});
-    row.description = 'add an item in the input source menu, even if that is only one keyboard';
-    group.add(row);
-
-    // Create the switch and bind its value to the `show-indicator` key
-    const toggle = new Gtk.Switch({
-        active: settings.alwaysShowMenuitem,
-        valign: Gtk.Align.CENTER,
-    });
-    settings.bindAlwaysShowMenuitem(
-        toggle,
-        'active',
-        Gio.SettingsBindFlags.DEFAULT
-    );
-
-    // Add the switch to the row
-    row.add_suffix(toggle);
-    row.activatable_widget = toggle;
-
-    // Logging pref
-    const row2 = new Adw.ActionRow({title: 'Log debug messages'});
-    group.add(row2);
-    const toggle2 = new Gtk.Switch({
-        active: settings.verbose,
-        valign: Gtk.Align.CENTER,
-    });
-
-    settings.bindVerbose(
-        toggle2,
-        'active',
-        Gio.SettingsBindFlags.DEFAULT
-    );
-    row2.add_suffix(toggle2);
-    row2.activatable_widget = toggle2;
+function getRules(settings) {
+    const v = settings.get_value(KEY_RULES);
+    return v.recursiveUnpack();
+}
 
 
-    // Teach-in / aggressive mode
+export default class ExamplePreferences extends ExtensionPreferences {
 
-    const row3 = new Adw.ActionRow({title: 'Teach-in mode'});
-    group.add(row3);
-    const toggle3 = new Gtk.Switch({
-        active: settings.verbose,
-        valign: Gtk.Align.CENTER,
-    });
+    /**
+     * This function is called when the preferences window is first created to fill
+     * the `Adw.PreferencesWindow`.
+     *
+     * This function will only be called by GNOME 42 and later. If this function is
+     * present, `buildPrefsWidget()` will never be called.
+     *
+     * @param {Adw.PreferencesWindow} window - The preferences window
+     */
+    fillPreferencesWindow(window) {
+        const settings = this.getSettings();
 
-    settings.bindTeachIn(
-        toggle3,
-        'active',
-        Gio.SettingsBindFlags.DEFAULT
-    );
-    row3.add_suffix(toggle3);
-    row3.activatable_widget = toggle3;
+        // Create a preferences page and group
+        const page = new Adw.PreferencesPage();
+        const group = new Adw.PreferencesGroup();
+        page.add(group);
+
+        // Create a new preferences row
+        const row = new Adw.ActionRow({title: 'Always Show Keyboards Menu'});
+        row.description = 'add an item in the input source menu, even if that is only one keyboard';
+        group.add(row);
+
+        // Create the switch and bind its value to the `show-indicator` key
+        const toggle = new Gtk.Switch({
+            active: settings.get_boolean(KEY_ALWAYS_SHOW_MENUITEM),
+            valign: Gtk.Align.CENTER,
+        });
+        settings.bind(KEY_ALWAYS_SHOW_MENUITEM, toggle, 'active', Gio.SettingsBindFlags.DEFAULT);
+        
+
+        // Add the switch to the row
+        row.add_suffix(toggle);
+        row.activatable_widget = toggle;
+
+        // Logging pref
+        const row2 = new Adw.ActionRow({title: 'Log debug messages'});
+        group.add(row2);
+        const toggle2 = new Gtk.Switch({
+            active: settings.get_boolean(KEY_VERBOSE),
+            valign: Gtk.Align.CENTER,
+        });
+
+        settings.bind(
+            KEY_VERBOSE,
+            toggle2,
+            'active',
+            Gio.SettingsBindFlags.DEFAULT
+        );
+        row2.add_suffix(toggle2);
+        row2.activatable_widget = toggle2;
 
 
-    // Add our page to the window
-    window.add(page);
+        // Teach-in / aggressive mode
 
-    // create another page for the rules
-    // Create a preferences page and group
-    const groupKbd = new KbdListGroup(settings, window);
-    page.add(groupKbd.group);
+        const row3 = new Adw.ActionRow({title: 'Teach-in mode'});
+        group.add(row3);
+        const toggle3 = new Gtk.Switch({
+            active: settings.get_boolean(KEY_TEACHIN),
+            valign: Gtk.Align.CENTER,
+        });
+
+        settings.bind(
+            KEY_TEACHIN,
+            toggle3,
+            'active',
+            Gio.SettingsBindFlags.DEFAULT
+        );
+        row3.add_suffix(toggle3);
+        row3.activatable_widget = toggle3;
+
+
+        // Add our page to the window
+        window.add(page);
+
+        // create another page for the rules
+        // Create a preferences page and group
+        const groupKbd = new KbdListGroup(settings, window);
+        page.add(groupKbd.group);
+    }
 }
 
 
@@ -105,14 +128,14 @@ class KbdListGroup {
         this.group = new Adw.PreferencesGroup();
         this.group.title = 'Keyboards';
         this._settings = settings;
-        this._settings.connect('rules-changed', this.update.bind(this));
+        //this._settings.connect('rules-changed', this.update.bind(this));
         this._rows = [];
         this._buttons = [];
         this.update();
     }
 
     update() {
-        const rules = this._settings.rules;
+        const rules = getRules(this._settings);
         rules.sort((a, b) => a[1] - b[1]);
 
         for (const r of this._rows)
@@ -197,7 +220,7 @@ class KbdListGroup {
                 let toApply =  [];
                 for (let [i, p, n, s] of rules)
                     toApply.push({kbdId: i, priority: p, kbdName: n, srcId: s});
-                this._settings.rules = toApply;
+                setRules(toApply, this._settings);
             }
             modal.destroy();
         });

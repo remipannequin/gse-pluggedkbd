@@ -17,24 +17,19 @@
  */
 
 /* exported init */
-const {Clutter, GObject, St} = imports.gi;
+import Clutter from 'gi://Clutter';
+import GObject from 'gi://GObject';
+import GLib from 'gi://GLib';
+import St from 'gi://St';
 
-const Gettext = imports.gettext;
-const Main = imports.ui.main;
-const Mainloop = imports.mainloop;
-const PopupMenu = imports.ui.popupMenu;
-const Status  = imports.ui.status;
-const ExtensionUtils = imports.misc.extensionUtils;
+import * as Keyboard from 'resource:///org/gnome/shell/ui/status/keyboard.js';
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
-const Me = ExtensionUtils.getCurrentExtension();
-const ism = Status.keyboard.getInputSourceManager();
-const Domain = Gettext.domain(Me.metadata.uuid);
-const _ = Domain.gettext;
+import {Keyboards, ProcInputDevicesPoller, PluggedKbdSettings} from './pluggedKbd.js';
 
-const pluggedKbd = Me.imports.pluggedKbd;
-const {Keyboards, ProcInputDevicesPoller, PluggedKbdSettings} = Me.imports.pluggedKbd;
-
-
+const ism = Keyboard.getInputSourceManager();
 
 /**
  * Display an inputDevice as a MenuItem
@@ -100,8 +95,9 @@ var LayoutMenuItem = GObject.registerClass(
 
 
 
-class Extension {
-    constructor() {
+export default class PluggedKbdExtension extends Extension {
+    constructor(metadata) {
+        super(metadata);
         this._monitor = null;
         // Timeout for forcing input method
         this._timeout = null;
@@ -203,7 +199,8 @@ class Extension {
     }
 
     enable() {
-        this._settings = new PluggedKbdSettings(ExtensionUtils);
+        const extensionObject = Extension.lookupByURL(import.meta.url);
+        this._settings = new PluggedKbdSettings(extensionObject);
         this._devices = new Keyboards(ism);
         this._detector = new ProcInputDevicesPoller();
 
@@ -242,13 +239,13 @@ class Extension {
         this._detector.mainLoopAdd(1); // 1s timeout to avoid having input source beeing reset by something else
 
         // If not in Teach-in mode, periodically force input source
-        this._timeout = Mainloop.timeout_add(2, this._force.bind(this));
+        this._timeout = GLib.timeout_add(GLib.PRIORY_DEFAULT, 2, this._force.bind(this));
     }
 
     disable() {
         // Cancel force timemout
         if (this._timeout) {
-            Mainloop.source_remove(this._timeout);
+            GLib.source_remove(this._timeout);
             this._timeout = null;
         }
 
@@ -280,10 +277,3 @@ class Extension {
     }
 }
 
-/**
- * Init extension.
- */
-function init() {
-    ExtensionUtils.initTranslations(Me.metadata.uuid);
-    return new Extension();
-}

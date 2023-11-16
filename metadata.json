@@ -3,10 +3,11 @@
   "description": "Detect if a specific input device is connected/disconnected, and change input source automaticaly.",
   "uuid": "plugged-kbd@remipannequin.github.com",
   "shell-version": [
-    "42", "43", "44"
+    "45"
   ],
   "url": "https://github.com/remipannequin/gse-pluggedkbd",
   "settings-schema": "org.gnome.shell.extensions.plugged-kbd",
-  "version": 1,
-  "session-modes": ["user", "unlock-dialog"]
+  "version": 2,
+  "session-modes": ["user", "unlock-dialog"],
+  "gettext-domain": "plugged-kbd@remipannequin.github.com"
 }

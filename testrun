@@ -1,0 +1,78 @@
+make clean zip
+
+EXTENSION=plugged-kbd@remipannequin.github.com
+ZIP=${EXTENSION}.shell-extension.zip
+
+# Run the container in detached mode.
+POD=$(podman run --rm --cap-add=SYS_NICE --cap-add=IPC_LOCK -td ghcr.io/schneegans/gnome-shell-pod-39)
+
+do_in_pod() {
+  podman exec --user gnomeshell --workdir /home/gnomeshell "${POD}" set-env.sh "$@"
+}
+
+ext_manager() {
+  podman exec --detach --user gnomeshell --workdir /home/gnomeshell "${POD}" set-env.sh gnome-extensions-app
+}
+
+# This simulates the given keystroke in the container. Simply calling "xdotool key $1"
+# sometimes fails to be recognized. Maybe the default 12ms between key-down and key-up
+# are too short for xvfb...
+send_keystroke() {
+  do_in_pod xdotool keydown "${1}"
+  sleep 0.5
+  do_in_pod xdotool keyup "${1}"
+}
+
+
+echo "Waiting for D-Bus."
+do_in_pod wait-user-bus.sh > /dev/null 2>&1
+
+
+# Install the extension
+echo "Installing extension."
+podman cp "${ZIP}" "${POD}:/home/gnomeshell"
+do_in_pod gnome-extensions install "${ZIP}"
+
+
+# Starting with GNOME 40, there is a "Welcome Tour" dialog popping up at first launch.
+# We disable this beforehand.
+
+echo "Disabling welcome tour."
+do_in_pod gsettings set org.gnome.shell welcome-dialog-last-shown-version "999" || true
+
+# Start GNOME Shell.
+do_in_pod systemctl --user start "gnome-xsession@:99"
+
+# Enable the extension.
+echo "Enabling extension"
+do_in_pod gnome-extensions enable "${EXTENSION}"
+
+# Starting with GNOME 40, the overview is the default mode. We close this here by hitting
+# the super key.
+
+echo "Closing Overview."
+send_keystroke "super"
+
+# Wait some time until GNOME Shell has been started.
+sleep 2
+
+ext_manager
+do_in_pod gnome-extensions prefs "${EXTENSION}"
+
+sleep 2
+
+echo $(do_in_pod gnome-extensions info ${EXTENSION}|grep State)
+
+
+
+
+
+# Now make a screenshot and show it!
+podman cp ${POD}:/opt/Xvfb_screen0 . && \
+       convert xwd:Xvfb_screen0 capture.jpg && \
+       eog capture.jpg
+
+
+
+# Now we can stop the container again.
+podman stop ${POD}
