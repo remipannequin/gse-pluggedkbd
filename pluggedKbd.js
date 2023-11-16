@@ -570,11 +570,11 @@ var Keyboards = class Keyboards {
         // The new source
         const src = this._ism.currentSource;
         debug(`Input source changed to ${src.id} (previous was ${this._currentSource.id})`);
-        try {
-            throw new Error('Some error occured');
-        } catch (e) {
-            logError(e, 'FooError');
-        }
+        // try {
+        //    throw new Error('Some error occured');
+        // } catch (e) {
+        //    logError(e, 'FooError');
+        // }
         // Update values
         this._currentSource = src;
         // Go through the list of connected and associated devices
@@ -602,7 +602,7 @@ var Keyboards = class Keyboards {
         const candidates = [...this._map.values()];
         // sort by priority
         candidates.sort((a, b) => {
-            return a.prio - b.prio;
+            return b.prio - a.prio;
         });
 
         for (const dev of candidates) {

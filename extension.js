@@ -198,6 +198,8 @@ class Extension {
     _force() {
         if (!this._settings.teachIn)
             this._devices.forceInputSource();
+        // continue periodic call
+        return true;
     }
 
     enable() {
